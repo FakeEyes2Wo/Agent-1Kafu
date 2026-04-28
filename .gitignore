@@ -1,0 +1,18 @@
+# Local environment
+.env
+!.env.example
+.venv/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Competition/private data and generated artifacts
+data/
+storage/
+submission.csv
+*.tmp
+*.log
+*.zip
