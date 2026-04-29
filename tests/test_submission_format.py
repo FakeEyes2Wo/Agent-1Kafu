@@ -66,6 +66,26 @@ def test_write_submission_preserves_question_order_and_blanks_missing_answers(tm
     )
 
 
+def test_write_submission_uses_utf8_without_bom(tmp_path):
+    question_path = tmp_path / "question_public.csv"
+    output_path = tmp_path / "submission.csv"
+    question_path.write_text(
+        'id,question\n1,"""问题"""\n',
+        encoding="utf-8",
+    )
+
+    write_submission(
+        question_path,
+        output_path,
+        ["id", "ret"],
+        {"1": "您好，问题已收到"},
+    )
+
+    raw = output_path.read_bytes()
+    assert not raw.startswith(b"\xef\xbb\xbf")
+    assert raw.decode("utf-8").replace("\r\n", "\n") == "id,ret\n1,您好，问题已收到\n"
+
+
 def test_validate_submission_requires_complete_rows(tmp_path):
     question_path = tmp_path / "question_public.csv"
     output_path = tmp_path / "submission.csv"

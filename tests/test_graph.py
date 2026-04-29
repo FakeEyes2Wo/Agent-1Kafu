@@ -79,7 +79,8 @@ def test_check_answer_checks_and_rewrites_once(monkeypatch):
     assert calls[-1][1] == "check and rewrite answer"
     assert "draft answer" in calls[-1][0]
     assert "按原始顺序逐个回应" in calls[-1][0]
-    assert "尽可能简洁" in calls[-1][0]
+    assert "图片映射检查" in calls[-1][0]
+    assert "准确、详细、完整" in calls[-1][0]
 
 
 def test_generate_answer_uses_reflection_when_initial_answer_is_empty(monkeypatch):
@@ -129,5 +130,8 @@ def test_generate_answer_prompt_has_language_rule_and_no_history(monkeypatch):
     assert "If the customer asks in English, answer in English" in prompts[-1]
     assert "客户用英文提问时，使用英文回答" in prompts[-1]
     assert "当前请求内部的多轮对话" in prompts[-1]
-    assert "尽可能简洁" in prompts[-1]
+    assert "RAG 检索证据使用规则" in prompts[-1]
+    assert "图片信息映射规则" in prompts[-1]
+    assert "准确、详细、完整" in prompts[-1]
+    assert "尽可能简洁" not in prompts[-1]
     assert "历史对话" not in prompts[-1]

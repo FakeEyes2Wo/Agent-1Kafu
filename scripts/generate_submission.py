@@ -16,6 +16,7 @@ from kefu_agent.rag import format_contexts, retrieve
 
 
 CONTEXT_CACHE_VERSION = 1
+CSV_ENCODING = "utf-8"
 
 
 def clean_question(text: str) -> str:
@@ -97,7 +98,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def _read_csv_rows(path: Path) -> list[dict[str, str]]:
-    with path.open("r", encoding="utf-8", newline="") as f:
+    with path.open("r", encoding=CSV_ENCODING, newline="") as f:
         return list(csv.DictReader(f))
 
 
@@ -106,7 +107,7 @@ def _question_rows(question_path: Path) -> list[dict[str, str]]:
 
 
 def _submission_fieldnames(sample_path: Path) -> list[str]:
-    with sample_path.open("r", encoding="utf-8", newline="") as f:
+    with sample_path.open("r", encoding=CSV_ENCODING, newline="") as f:
         fieldnames = csv.DictReader(f).fieldnames or ["id", "ret"]
     return fieldnames if fieldnames == ["id", "ret"] else ["id", "ret"]
 
@@ -115,7 +116,7 @@ def _load_completed_rows(output_path: Path) -> dict[str, str]:
     if not output_path.exists():
         return {}
 
-    with output_path.open("r", encoding="utf-8", newline="") as f:
+    with output_path.open("r", encoding=CSV_ENCODING, newline="") as f:
         reader = csv.DictReader(f)
         if reader.fieldnames != ["id", "ret"]:
             return {}
@@ -276,7 +277,7 @@ def write_submission(
 ) -> None:
     questions = _question_rows(question_path)
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
-    with tmp_path.open("w", encoding="utf-8", newline="") as f:
+    with tmp_path.open("w", encoding=CSV_ENCODING, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for row in questions:
@@ -287,7 +288,7 @@ def write_submission(
 
 def validate_submission(question_path: Path, output_path: Path) -> None:
     questions = _question_rows(question_path)
-    with output_path.open("r", encoding="utf-8", newline="") as f:
+    with output_path.open("r", encoding=CSV_ENCODING, newline="") as f:
         reader = csv.DictReader(f)
         fieldnames = reader.fieldnames
         rows = list(reader)

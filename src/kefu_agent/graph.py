@@ -8,7 +8,12 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 
 from .config import get_settings
-from .prompts import ANSWER_PROMPT, CHECK_AND_REWRITE_PROMPT, COMMON_POLICY
+from .prompts import (
+    ANSWER_PROMPT,
+    CHECK_AND_REWRITE_PROMPT,
+    COMMON_POLICY,
+    IMAGE_SUMMARY_PROMPT,
+)
 from .rag import format_contexts, retrieve
 
 
@@ -87,7 +92,7 @@ def summarize_images(state: AgentState) -> AgentState:
         content = [
             {
                 "type": "text",
-                "text": "请简要提取这些客服图片中的订单、物流、故障或商品信息。",
+                "text": IMAGE_SUMMARY_PROMPT,
             }
         ]
         for image in images[:3]:
