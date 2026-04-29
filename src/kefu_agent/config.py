@@ -35,10 +35,16 @@ class Settings(BaseSettings):
     manual_dir: Path = Field(default=Path("./data/手册"))
     image_dir: Path = Field(default=Path("./data/手册/插图"))
     vectorstore_dir: Path = Field(default=Path("./storage/vectorstore"))
+    llamaindex_dir: Path = Field(default=Path("./storage/llamaindex"))
 
     chunk_size: int = 700
     chunk_overlap: int = 120
     top_k: int = 8
+    rag_backend: str = "llamaindex"
+    retrieval_top_k: int = 20
+    rerank_enabled: bool = False
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    rerank_top_n: int = 8
     model_timeout_seconds: float = 60
 
     def model_post_init(self, __context: object) -> None:
@@ -47,6 +53,7 @@ class Settings(BaseSettings):
             "manual_dir",
             "image_dir",
             "vectorstore_dir",
+            "llamaindex_dir",
             "embedding_model_dir",
         ):
             path = Path(getattr(self, name))

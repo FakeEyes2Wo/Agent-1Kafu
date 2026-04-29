@@ -28,6 +28,11 @@ def test_embedding_backend_defaults_to_sentence_transformers_qwen():
     assert settings.embedding_model == "Qwen/Qwen3-Embedding-0.6B"
     assert settings.embedding_query_prompt_name == "query"
     assert settings.embedding_model_dir == (PROJECT_ROOT / "storage" / "models").resolve()
+    assert settings.rag_backend == "llamaindex"
+    assert settings.llamaindex_dir == (PROJECT_ROOT / "storage" / "llamaindex").resolve()
+    assert settings.retrieval_top_k == 20
+    assert not settings.rerank_enabled
+    assert settings.rerank_top_n == 8
     assert settings.use_sentence_transformer_embeddings
     assert not settings.use_openai_embeddings
 

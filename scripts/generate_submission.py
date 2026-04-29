@@ -15,7 +15,7 @@ from kefu_agent.graph import answer_question_async
 from kefu_agent.rag import format_contexts, retrieve
 
 
-CONTEXT_CACHE_VERSION = 2
+CONTEXT_CACHE_VERSION = 3
 # utf-8-sig writes a UTF-8 BOM and reads both BOM and non-BOM UTF-8 CSV files.
 CSV_ENCODING = "utf-8-sig"
 
@@ -200,6 +200,11 @@ def _context_cache_signature(settings) -> dict:
         "embedding_model": settings.embedding_model,
         "embedding_query_prompt_name": settings.embedding_query_prompt_name,
         "top_k": settings.top_k,
+        "rag_backend": settings.rag_backend,
+        "retrieval_top_k": settings.retrieval_top_k,
+        "rerank_enabled": settings.rerank_enabled,
+        "rerank_model": settings.rerank_model,
+        "rerank_top_n": settings.rerank_top_n,
     }
 
 

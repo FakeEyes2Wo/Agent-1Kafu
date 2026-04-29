@@ -1,4 +1,6 @@
 from scripts.generate_submission import (
+    CONTEXT_CACHE_VERSION,
+    _context_cache_signature,
     _load_completed_rows,
     _question_rows,
     clean_question,
@@ -127,6 +129,11 @@ def test_prepare_context_cache_reuses_existing_contexts(monkeypatch, tmp_path):
         embedding_model = "hash"
         embedding_query_prompt_name = ""
         top_k = 2
+        rag_backend = "llamaindex"
+        retrieval_top_k = 20
+        rerank_enabled = False
+        rerank_model = "BAAI/bge-reranker-v2-m3"
+        rerank_top_n = 8
 
     calls = []
 
@@ -146,6 +153,35 @@ def test_prepare_context_cache_reuses_existing_contexts(monkeypatch, tmp_path):
     assert first == {"1": "context for first", "2": "context for second"}
     assert second == first
     assert calls == ["first", "second"]
+
+
+def test_context_cache_signature_includes_rag_fields():
+    class Settings:
+        embedding_backend = "HASH"
+        embedding_model = "hash"
+        embedding_query_prompt_name = ""
+        top_k = 2
+        rag_backend = "llamaindex"
+        retrieval_top_k = 20
+        rerank_enabled = True
+        rerank_model = "reranker"
+        rerank_top_n = 6
+
+    signature = _context_cache_signature(Settings())
+
+    assert CONTEXT_CACHE_VERSION == 3
+    assert signature == {
+        "version": 3,
+        "embedding_backend": "hash",
+        "embedding_model": "hash",
+        "embedding_query_prompt_name": "",
+        "top_k": 2,
+        "rag_backend": "llamaindex",
+        "retrieval_top_k": 20,
+        "rerank_enabled": True,
+        "rerank_model": "reranker",
+        "rerank_top_n": 6,
+    }
 
 
 def test_main_generates_submission_without_history_argument(monkeypatch, tmp_path):

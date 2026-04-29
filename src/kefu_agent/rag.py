@@ -7,7 +7,7 @@ import warnings
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from langchain_core.embeddings import Embeddings
 from langchain_openai import OpenAIEmbeddings
@@ -151,6 +151,20 @@ def build_index() -> int:
     settings = get_settings()
     settings.vectorstore_dir.mkdir(parents=True, exist_ok=True)
     chunks = list(load_manual_chunks())
+    if _rag_backend(settings) != "legacy":
+        settings.llamaindex_dir.mkdir(parents=True, exist_ok=True)
+        nodes = _manual_chunks_to_nodes(chunks)
+        if nodes:
+            from llama_index.core import VectorStoreIndex
+
+            embed_model = _llama_embed_model_cached(
+                settings.embedding_model, str(settings.embedding_model_dir)
+            )
+            index = VectorStoreIndex(nodes, embed_model=embed_model)
+            index.storage_context.persist(persist_dir=str(settings.llamaindex_dir))
+        _write_index_metadata(settings, [])
+        return len(chunks)
+
     embeddings = get_embeddings()
     texts = [chunk["text"] for chunk in chunks]
     vectors = embeddings.embed_documents(texts) if texts else []
@@ -165,15 +179,131 @@ def build_index() -> int:
 
 def retrieve(query: str, top_k: int | None = None) -> list[Chunk]:
     settings = get_settings()
-    if not settings.index_path.exists() or not _index_metadata_matches(settings):
-        build_index()
-        _load_index.cache_clear()
-    chunks = _load_index(str(settings.index_path))
-    if not chunks:
+    final_limit = top_k or settings.top_k
+    if final_limit <= 0:
         return []
 
-    query_vector = get_embeddings().embed_query(query)
-    return _rank_chunks(query_vector, chunks, top_k or settings.top_k)
+    if _rag_backend(settings) == "legacy":
+        if not settings.index_path.exists() or not _index_metadata_matches(settings):
+            build_index()
+            _load_index.cache_clear()
+        chunks = _load_index(str(settings.index_path))
+        if not chunks:
+            return []
+        return _rank_chunks(get_embeddings().embed_query(query), chunks, final_limit)
+
+    if (
+        not settings.llamaindex_dir.exists()
+        or not any(settings.llamaindex_dir.iterdir())
+        or not _index_metadata_matches(settings)
+    ):
+        if build_index() == 0:
+            return []
+        _load_llama_index.cache_clear()
+
+    index = _load_llama_index(
+        str(settings.llamaindex_dir),
+        settings.embedding_model,
+        str(settings.embedding_model_dir),
+    )
+    initial_k = final_limit
+    if settings.rerank_enabled:
+        initial_k = max(settings.retrieval_top_k, final_limit)
+    nodes = index.as_retriever(similarity_top_k=initial_k).retrieve(query)
+
+    if settings.rerank_enabled:
+        nodes = _rerank_nodes(query, nodes, top_k or settings.rerank_top_n)
+
+    return [_node_to_chunk(node) for node in nodes[:final_limit]]
+
+
+def _manual_chunks_to_nodes(chunks: list[dict]) -> list[Any]:
+    from llama_index.core.schema import TextNode
+
+    return [
+        TextNode(
+            id_=chunk["id"],
+            text=chunk["text"],
+            metadata={
+                "manual": chunk["manual"],
+                "title": chunk["title"],
+                "image_ids": json.dumps(chunk["image_ids"], ensure_ascii=False),
+            },
+        )
+        for chunk in chunks
+    ]
+
+
+@lru_cache(maxsize=4)
+def _llama_embed_model_cached(model_name: str, cache_folder: str) -> Any:
+    from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+
+    return HuggingFaceEmbedding(
+        model_name=model_name,
+        cache_folder=cache_folder,
+        trust_remote_code=True,
+    )
+
+
+@lru_cache(maxsize=2)
+def _load_llama_index(persist_dir: str, embedding_model: str, model_dir: str) -> Any:
+    from llama_index.core import StorageContext, load_index_from_storage
+
+    storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
+    embed_model = _llama_embed_model_cached(embedding_model, model_dir)
+    return load_index_from_storage(storage_context, embed_model=embed_model)
+
+
+def _rerank_nodes(query: str, nodes: list[Any], top_n: int) -> list[Any]:
+    if not nodes or top_n <= 0:
+        return []
+
+    pairs = [(query, _node_text(node)) for node in nodes]
+    scores = _get_reranker(get_settings().rerank_model).predict(pairs)
+    ranked = sorted(zip(nodes, scores, strict=False), key=lambda item: item[1], reverse=True)
+    return [node for node, _score in ranked[:top_n]]
+
+
+@lru_cache(maxsize=2)
+def _get_reranker(model_name: str) -> Any:
+    from sentence_transformers import CrossEncoder
+
+    return CrossEncoder(model_name)
+
+
+def _node_to_chunk(node_with_score: Any) -> Chunk:
+    node = getattr(node_with_score, "node", node_with_score)
+    metadata = dict(getattr(node, "metadata", {}) or {})
+    return Chunk(
+        id=str(
+            getattr(node, "node_id", None)
+            or getattr(node, "id_", "")
+            or metadata.get("id", "")
+        ),
+        manual=str(metadata.get("manual", "")),
+        title=str(metadata.get("title", "")),
+        text=_node_text(node),
+        image_ids=_metadata_image_ids(metadata.get("image_ids")),
+        vector=[],
+    )
+
+
+def _node_text(node_with_score: Any) -> str:
+    node = getattr(node_with_score, "node", node_with_score)
+    if hasattr(node, "get_content"):
+        try:
+            return str(node.get_content(metadata_mode="none"))
+        except TypeError:
+            return str(node.get_content())
+    return str(getattr(node, "text", ""))
+
+
+def _metadata_image_ids(value: Any) -> list[str]:
+    try:
+        parsed = json.loads(value) if isinstance(value, str) else value
+    except json.JSONDecodeError:
+        return []
+    return [str(item) for item in parsed] if isinstance(parsed, list) else []
 
 
 def _rank_chunks(query_vector: list[float], chunks: list[Chunk], top_k: int) -> list[Chunk]:
@@ -244,7 +374,19 @@ def _embedding_signature(settings: Settings) -> dict[str, str]:
         "embedding_backend": settings.embedding_backend.strip().lower(),
         "embedding_model": settings.embedding_model,
         "embedding_query_prompt_name": settings.embedding_query_prompt_name,
+        "rag_backend": _rag_backend(settings),
+        "retrieval_top_k": str(settings.retrieval_top_k),
+        "rerank_enabled": str(settings.rerank_enabled),
+        "rerank_model": settings.rerank_model,
+        "rerank_top_n": str(settings.rerank_top_n),
     }
+
+
+def _rag_backend(settings: Settings) -> str:
+    backend = settings.rag_backend.strip().lower()
+    if backend not in {"llamaindex", "legacy"}:
+        raise RuntimeError(f"Unsupported RAG_BACKEND: {settings.rag_backend}")
+    return backend
 
 
 def _has_hf_cache_snapshot(cache_dir: Path, model_name: str) -> bool:
