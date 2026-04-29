@@ -128,7 +128,7 @@ def test_prepare_context_cache_reuses_existing_contexts(monkeypatch, tmp_path):
     assert calls == ["first", "second"]
 
 
-def test_main_disables_history_for_submission(monkeypatch, tmp_path):
+def test_main_generates_submission_without_history_argument(monkeypatch, tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     (data_dir / "question_public.csv").write_text(
@@ -157,10 +157,9 @@ def test_main_disables_history_for_submission(monkeypatch, tmp_path):
     async def fake_answer_question_async(
         question,
         session_id=None,
-        persist_history=True,
         contexts=None,
     ):
-        calls.append((question, session_id, persist_history, contexts))
+        calls.append((question, session_id, contexts))
         return "answer", session_id
 
     monkeypatch.setattr(
@@ -171,8 +170,8 @@ def test_main_disables_history_for_submission(monkeypatch, tmp_path):
     main(["--workers", "2"])
 
     assert calls == [
-        ("hello\nagain", "submission_1", False, "context 1"),
-        ("single", "submission_2", False, "context 2"),
+        ("hello\nagain", "submission_1", "context 1"),
+        ("single", "submission_2", "context 2"),
     ]
 
 
@@ -206,10 +205,9 @@ def test_main_resumes_and_writes_blank_rows_for_missing_answers(monkeypatch, tmp
     async def fake_answer_question_async(
         question,
         session_id=None,
-        persist_history=True,
         contexts=None,
     ):
-        calls.append((question, session_id, persist_history, contexts))
+        calls.append((question, session_id, contexts))
         return f"new answer for {question}", session_id
 
     monkeypatch.setattr(
@@ -220,8 +218,8 @@ def test_main_resumes_and_writes_blank_rows_for_missing_answers(monkeypatch, tmp
     main(["--workers", "2"])
 
     assert calls == [
-        ("missing", "submission_2", False, "context 2"),
-        ("also missing", "submission_3", False, "context 3"),
+        ("missing", "submission_2", "context 2"),
+        ("also missing", "submission_3", "context 3"),
     ]
     assert (tmp_path / "submission.csv").read_text(encoding="utf-8") == (
         "id,ret\n"

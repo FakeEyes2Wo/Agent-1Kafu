@@ -8,7 +8,6 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 
 from .config import get_settings
-from .memory import load_history, save_turn
 from .prompts import ANSWER_PROMPT, CHECK_AND_REWRITE_PROMPT, COMMON_POLICY
 from .rag import format_contexts, retrieve
 
@@ -20,8 +19,6 @@ class AgentState(TypedDict, total=False):
     question: str
     images: list[str]
     session_id: str
-    persist_history: bool
-    history: list[dict[str, str]]
     image_summary: str
     contexts: str
     answer: str
@@ -31,7 +28,6 @@ def answer_question(
     question: str,
     images: list[str] | None = None,
     session_id: str | None = None,
-    persist_history: bool = True,
     contexts: str | None = None,
 ) -> tuple[str, str]:
     sid = session_id or f"kf_session_{uuid.uuid4().hex}"
@@ -39,7 +35,6 @@ def answer_question(
         "question": question,
         "images": images or [],
         "session_id": sid,
-        "persist_history": persist_history,
     }
     if contexts is not None:
         input_state["contexts"] = contexts
@@ -51,7 +46,6 @@ async def answer_question_async(
     question: str,
     images: list[str] | None = None,
     session_id: str | None = None,
-    persist_history: bool = True,
     contexts: str | None = None,
 ) -> tuple[str, str]:
     return await asyncio.to_thread(
@@ -59,36 +53,23 @@ async def answer_question_async(
         question,
         images=images,
         session_id=session_id,
-        persist_history=persist_history,
         contexts=contexts,
     )
 
 
 def get_graph():
     builder = StateGraph(AgentState)
-    builder.add_node("load_context", load_context)
     builder.add_node("summarize_images", summarize_images)
     builder.add_node("retrieve_context", retrieve_context)
     builder.add_node("generate_answer", generate_answer)
     builder.add_node("check_answer", check_answer)
-    builder.add_node("save_memory", save_memory)
 
-    builder.add_edge(START, "load_context")
-    builder.add_edge("load_context", "summarize_images")
+    builder.add_edge(START, "summarize_images")
     builder.add_edge("summarize_images", "retrieve_context")
     builder.add_edge("retrieve_context", "generate_answer")
     builder.add_edge("generate_answer", "check_answer")
-    builder.add_edge("check_answer", "save_memory")
-    builder.add_edge("save_memory", END)
+    builder.add_edge("check_answer", END)
     return builder.compile()
-
-
-def load_context(state: AgentState) -> AgentState:
-    if state.get("persist_history", True):
-        state["history"] = load_history(state["session_id"])
-    else:
-        state["history"] = []
-    return state
 
 
 def summarize_images(state: AgentState) -> AgentState:
@@ -134,9 +115,7 @@ def retrieve_context(state: AgentState) -> AgentState:
 
 def generate_answer(state: AgentState) -> AgentState:
     _require_chat_model()
-    history = _format_history(state.get("history", []))
     prompt = ANSWER_PROMPT.format(
-        history=history,
         image_summary=state.get("image_summary", NO_IMAGE_SUMMARY),
         contexts=state.get("contexts", ""),
         common_policy=COMMON_POLICY,
@@ -164,9 +143,7 @@ def check_answer(state: AgentState) -> AgentState:
 
 
 def _check_and_rewrite_answer(state: AgentState, answer: str) -> str:
-    history = _format_history(state.get("history", []))
     prompt = CHECK_AND_REWRITE_PROMPT.format(
-        history=history,
         image_summary=state.get("image_summary", NO_IMAGE_SUMMARY),
         contexts=state.get("contexts", ""),
         common_policy=COMMON_POLICY,
@@ -174,12 +151,6 @@ def _check_and_rewrite_answer(state: AgentState, answer: str) -> str:
         answer=answer,
     )
     return _invoke_chat(prompt, error_context="check and rewrite answer")
-
-
-def save_memory(state: AgentState) -> AgentState:
-    if state.get("persist_history", True):
-        save_turn(state["session_id"], state["question"], state["answer"])
-    return state
 
 
 def response_payload(answer: str, session_id: str) -> dict:
@@ -224,14 +195,3 @@ def _require_chat_model() -> None:
         raise RuntimeError(
             "OPENAI_API_KEY must be configured so the chat model can generate answers."
         )
-
-
-def _format_history(history: list[dict[str, str]]) -> str:
-    if not history:
-        return "无"
-    lines = []
-    for turn in history:
-        lines.append(
-            f"用户：{turn.get('question', '')}\n客服：{turn.get('answer', '')}"
-        )
-    return "\n".join(lines)

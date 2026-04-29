@@ -35,12 +35,10 @@ class Settings(BaseSettings):
     manual_dir: Path = Field(default=Path("./data/手册"))
     image_dir: Path = Field(default=Path("./data/手册/插图"))
     vectorstore_dir: Path = Field(default=Path("./storage/vectorstore"))
-    session_store_dir: Path = Field(default=Path("./storage/sessions"))
 
     chunk_size: int = 700
     chunk_overlap: int = 120
     top_k: int = 8
-    max_history_turns: int = 6
     model_timeout_seconds: float = 60
 
     def model_post_init(self, __context: object) -> None:
@@ -49,7 +47,6 @@ class Settings(BaseSettings):
             "manual_dir",
             "image_dir",
             "vectorstore_dir",
-            "session_store_dir",
             "embedding_model_dir",
         ):
             path = Path(getattr(self, name))

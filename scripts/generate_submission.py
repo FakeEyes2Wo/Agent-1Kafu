@@ -239,7 +239,6 @@ async def _generate_missing_answers(
                 answer, _ = await answer_question_async(
                     question,
                     session_id=f"submission_{qid}",
-                    persist_history=False,
                     contexts=contexts_by_id[qid],
                 )
             except Exception as exc:

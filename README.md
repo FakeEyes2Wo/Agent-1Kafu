@@ -64,6 +64,8 @@ uv run python scripts/generate_submission.py
 
 The script reads every row in `data/question_public.csv` and writes
 `submission.csv` in the project root using the required `id,ret` format.
+Each row is answered independently; no persistent conversation history is read
+or saved during API calls or submission generation.
 
 ## Test
 

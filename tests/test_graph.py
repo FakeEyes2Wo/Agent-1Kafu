@@ -3,9 +3,7 @@ import asyncio
 from kefu_agent import graph
 
 
-def test_answer_question_can_skip_history(monkeypatch):
-    calls = {"load": 0, "save": 0}
-
+def test_answer_question_runs_without_persistent_history(monkeypatch):
     monkeypatch.setattr(graph, "retrieve", lambda query: [])
     monkeypatch.setattr(graph, "_require_chat_model", lambda: None)
     monkeypatch.setattr(
@@ -14,25 +12,13 @@ def test_answer_question_can_skip_history(monkeypatch):
         lambda prompt, error_context: "answer" if error_context == "generate answer" else "reflected",
     )
 
-    def fake_load_history(session_id):
-        calls["load"] += 1
-        return [{"question": "old", "answer": "old answer"}]
-
-    def fake_save_turn(session_id, question, answer):
-        calls["save"] += 1
-
-    monkeypatch.setattr(graph, "load_history", fake_load_history)
-    monkeypatch.setattr(graph, "save_turn", fake_save_turn)
-
     answer, session_id = graph.answer_question(
         "question",
         session_id="submission_1",
-        persist_history=False,
     )
 
     assert answer == "reflected"
     assert session_id == "submission_1"
-    assert calls == {"load": 0, "save": 0}
 
 
 def test_answer_question_can_use_precomputed_contexts(monkeypatch):
@@ -47,7 +33,6 @@ def test_answer_question_can_use_precomputed_contexts(monkeypatch):
     answer, _ = graph.answer_question(
         "question",
         session_id="submission_1",
-        persist_history=False,
         contexts="cached evidence",
     )
 
@@ -64,7 +49,6 @@ def test_answer_question_async_uses_sync_entrypoint(monkeypatch):
         graph.answer_question_async(
             "question",
             session_id="sid",
-            persist_history=False,
             contexts="cached evidence",
         )
     )
@@ -85,7 +69,6 @@ def test_check_answer_checks_and_rewrites_once(monkeypatch):
     state = graph.check_answer(
         {
             "question": "question",
-            "history": [],
             "image_summary": graph.NO_IMAGE_SUMMARY,
             "contexts": "evidence",
             "answer": "draft answer",
@@ -95,6 +78,8 @@ def test_check_answer_checks_and_rewrites_once(monkeypatch):
     assert state["answer"] == "better warmer answer"
     assert calls[-1][1] == "check and rewrite answer"
     assert "draft answer" in calls[-1][0]
+    assert "按原始顺序逐个回应" in calls[-1][0]
+    assert "尽可能简洁" in calls[-1][0]
 
 
 def test_generate_answer_uses_reflection_when_initial_answer_is_empty(monkeypatch):
@@ -113,7 +98,6 @@ def test_generate_answer_uses_reflection_when_initial_answer_is_empty(monkeypatc
     state = graph.generate_answer(
         {
             "question": "question",
-            "history": [],
             "image_summary": graph.NO_IMAGE_SUMMARY,
             "contexts": "evidence",
         }
@@ -121,3 +105,29 @@ def test_generate_answer_uses_reflection_when_initial_answer_is_empty(monkeypatc
 
     assert state["answer"] == "rescued answer"
     assert calls == ["generate answer", "check and rewrite answer"]
+
+
+def test_generate_answer_prompt_has_language_rule_and_no_history(monkeypatch):
+    prompts = []
+
+    monkeypatch.setattr(graph, "_require_chat_model", lambda: None)
+
+    def fake_invoke(prompt, error_context):
+        prompts.append(prompt)
+        return "answer"
+
+    monkeypatch.setattr(graph, "_invoke_chat", fake_invoke)
+
+    graph.generate_answer(
+        {
+            "question": "Can I return it?",
+            "image_summary": graph.NO_IMAGE_SUMMARY,
+            "contexts": "evidence",
+        }
+    )
+
+    assert "If the customer asks in English, answer in English" in prompts[-1]
+    assert "客户用英文提问时，使用英文回答" in prompts[-1]
+    assert "当前请求内部的多轮对话" in prompts[-1]
+    assert "尽可能简洁" in prompts[-1]
+    assert "历史对话" not in prompts[-1]
