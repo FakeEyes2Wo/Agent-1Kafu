@@ -3,6 +3,7 @@ from scripts.generate_submission import (
     _question_rows,
     clean_question,
     main,
+    prepare_context_cache,
     validate_submission,
     write_submission,
 )
@@ -39,7 +40,7 @@ def test_load_completed_rows_skips_empty_answers(tmp_path):
     assert _load_completed_rows(output) == {"1": "done"}
 
 
-def test_write_submission_preserves_question_order_for_completed_rows(tmp_path):
+def test_write_submission_preserves_question_order_and_blanks_missing_answers(tmp_path):
     question_path = tmp_path / "question_public.csv"
     output_path = tmp_path / "submission.csv"
     question_path.write_text(
@@ -56,6 +57,12 @@ def test_write_submission_preserves_question_order_for_completed_rows(tmp_path):
 
     assert output_path.read_text(encoding="utf-8") == (
         "id,ret\n1,answer 1\n2,answer 2\n3,answer 3\n"
+    )
+
+    write_submission(question_path, output_path, ["id", "ret"], {"3": "answer 3"})
+
+    assert output_path.read_text(encoding="utf-8") == (
+        "id,ret\n1,\n2,\n3,answer 3\n"
     )
 
 
@@ -76,6 +83,51 @@ def test_validate_submission_requires_complete_rows(tmp_path):
         raise AssertionError("validate_submission should reject partial output")
 
 
+def test_validate_submission_allows_blank_answers_when_ids_match(tmp_path):
+    question_path = tmp_path / "question_public.csv"
+    output_path = tmp_path / "submission.csv"
+    question_path.write_text(
+        'id,question\n1,"""first"""\n2,"""second"""\n',
+        encoding="utf-8",
+    )
+    output_path.write_text("id,ret\n1,\n2,answer 2\n", encoding="utf-8")
+
+    validate_submission(question_path, output_path)
+
+
+def test_prepare_context_cache_reuses_existing_contexts(monkeypatch, tmp_path):
+    cache_path = tmp_path / "contexts_cache.json"
+    questions = [
+        {"id": "1", "question": '"first"'},
+        {"id": "2", "question": '"second"'},
+    ]
+
+    class Settings:
+        embedding_backend = "hash"
+        embedding_model = "hash"
+        embedding_query_prompt_name = ""
+        top_k = 2
+
+    calls = []
+
+    def fake_retrieve(question):
+        calls.append(question)
+        return [question]
+
+    monkeypatch.setattr("scripts.generate_submission.retrieve", fake_retrieve)
+    monkeypatch.setattr(
+        "scripts.generate_submission.format_contexts",
+        lambda chunks: f"context for {chunks[0]}",
+    )
+
+    first = prepare_context_cache(questions, cache_path, Settings())
+    second = prepare_context_cache(questions, cache_path, Settings())
+
+    assert first == {"1": "context for first", "2": "context for second"}
+    assert second == first
+    assert calls == ["first", "second"]
+
+
 def test_main_disables_history_for_submission(monkeypatch, tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -89,21 +141,91 @@ def test_main_disables_history_for_submission(monkeypatch, tmp_path):
         pass
 
     Settings.data_dir = data_dir
+    Settings.vectorstore_dir = tmp_path / "storage"
 
     monkeypatch.setattr("scripts.generate_submission.get_settings", lambda: Settings())
     monkeypatch.setattr("scripts.generate_submission.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "scripts.generate_submission.prepare_context_cache",
+        lambda questions, cache_path, settings: {
+            row["id"]: f"context {row['id']}" for row in questions
+        },
+    )
 
     calls = []
 
-    def fake_answer_question(question, session_id=None, persist_history=True):
-        calls.append((question, session_id, persist_history))
+    async def fake_answer_question_async(
+        question,
+        session_id=None,
+        persist_history=True,
+        contexts=None,
+    ):
+        calls.append((question, session_id, persist_history, contexts))
         return "answer", session_id
 
-    monkeypatch.setattr("scripts.generate_submission.answer_question", fake_answer_question)
+    monkeypatch.setattr(
+        "scripts.generate_submission.answer_question_async",
+        fake_answer_question_async,
+    )
 
-    main()
+    main(["--workers", "2"])
 
     assert calls == [
-        ("hello\nagain", "submission_1", False),
-        ("single", "submission_2", False),
+        ("hello\nagain", "submission_1", False, "context 1"),
+        ("single", "submission_2", False, "context 2"),
     ]
+
+
+def test_main_resumes_and_writes_blank_rows_for_missing_answers(monkeypatch, tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "question_public.csv").write_text(
+        'id,question\n1,"""done"""\n2,"""missing"""\n3,"""also missing"""\n',
+        encoding="utf-8",
+    )
+    (data_dir / "submission_example.csv").write_text("id,ret\n1,example\n", encoding="utf-8")
+    (tmp_path / "submission.csv").write_text("id,ret\n1,old answer\n", encoding="utf-8")
+
+    class Settings:
+        pass
+
+    Settings.data_dir = data_dir
+    Settings.vectorstore_dir = tmp_path / "storage"
+
+    monkeypatch.setattr("scripts.generate_submission.get_settings", lambda: Settings())
+    monkeypatch.setattr("scripts.generate_submission.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "scripts.generate_submission.prepare_context_cache",
+        lambda questions, cache_path, settings: {
+            row["id"]: f"context {row['id']}" for row in questions
+        },
+    )
+
+    calls = []
+
+    async def fake_answer_question_async(
+        question,
+        session_id=None,
+        persist_history=True,
+        contexts=None,
+    ):
+        calls.append((question, session_id, persist_history, contexts))
+        return f"new answer for {question}", session_id
+
+    monkeypatch.setattr(
+        "scripts.generate_submission.answer_question_async",
+        fake_answer_question_async,
+    )
+
+    main(["--workers", "2"])
+
+    assert calls == [
+        ("missing", "submission_2", False, "context 2"),
+        ("also missing", "submission_3", False, "context 3"),
+    ]
+    assert (tmp_path / "submission.csv").read_text(encoding="utf-8") == (
+        "id,ret\n"
+        "1,old answer\n"
+        "2,new answer for missing\n"
+        "3,new answer for also missing\n"
+    )

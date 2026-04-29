@@ -1,3 +1,4 @@
+import asyncio
 import time
 import uuid
 from typing import TypedDict
@@ -8,7 +9,7 @@ from langgraph.graph import END, START, StateGraph
 
 from .config import get_settings
 from .memory import load_history, save_turn
-from .prompts import ANSWER_PROMPT, COMMON_POLICY, REFLECTION_PROMPT, REWRITE_PROMPT
+from .prompts import ANSWER_PROMPT, CHECK_AND_REWRITE_PROMPT, COMMON_POLICY
 from .rag import format_contexts, retrieve
 
 
@@ -31,17 +32,36 @@ def answer_question(
     images: list[str] | None = None,
     session_id: str | None = None,
     persist_history: bool = True,
+    contexts: str | None = None,
 ) -> tuple[str, str]:
     sid = session_id or f"kf_session_{uuid.uuid4().hex}"
-    state = get_graph().invoke(
-        {
-            "question": question,
-            "images": images or [],
-            "session_id": sid,
-            "persist_history": persist_history,
-        }
-    )
+    input_state = {
+        "question": question,
+        "images": images or [],
+        "session_id": sid,
+        "persist_history": persist_history,
+    }
+    if contexts is not None:
+        input_state["contexts"] = contexts
+    state = get_graph().invoke(input_state)
     return state["answer"], state["session_id"]
+
+
+async def answer_question_async(
+    question: str,
+    images: list[str] | None = None,
+    session_id: str | None = None,
+    persist_history: bool = True,
+    contexts: str | None = None,
+) -> tuple[str, str]:
+    return await asyncio.to_thread(
+        answer_question,
+        question,
+        images=images,
+        session_id=session_id,
+        persist_history=persist_history,
+        contexts=contexts,
+    )
 
 
 def get_graph():
@@ -51,7 +71,6 @@ def get_graph():
     builder.add_node("retrieve_context", retrieve_context)
     builder.add_node("generate_answer", generate_answer)
     builder.add_node("check_answer", check_answer)
-    builder.add_node("rewrite_answer", rewrite_answer)
     builder.add_node("save_memory", save_memory)
 
     builder.add_edge(START, "load_context")
@@ -59,8 +78,7 @@ def get_graph():
     builder.add_edge("summarize_images", "retrieve_context")
     builder.add_edge("retrieve_context", "generate_answer")
     builder.add_edge("generate_answer", "check_answer")
-    builder.add_edge("check_answer", "rewrite_answer")
-    builder.add_edge("rewrite_answer", "save_memory")
+    builder.add_edge("check_answer", "save_memory")
     builder.add_edge("save_memory", END)
     return builder.compile()
 
@@ -103,6 +121,9 @@ def summarize_images(state: AgentState) -> AgentState:
 
 
 def retrieve_context(state: AgentState) -> AgentState:
+    if "contexts" in state:
+        return state
+
     query = state["question"]
     image_summary = state.get("image_summary")
     if image_summary and image_summary != NO_IMAGE_SUMMARY:
@@ -124,7 +145,7 @@ def generate_answer(state: AgentState) -> AgentState:
 
     answer = _invoke_chat(prompt, error_context="generate answer")
     if not answer:
-        answer = _reflect_answer(state, "")
+        answer = _check_and_rewrite_answer(state, "")
     if not answer:
         raise RuntimeError("chat model returned an empty answer")
 
@@ -134,25 +155,17 @@ def generate_answer(state: AgentState) -> AgentState:
 
 def check_answer(state: AgentState) -> AgentState:
     answer = (state.get("answer") or "").strip()
-    reflected = _reflect_answer(state, answer)
-    if not reflected:
-        raise RuntimeError("reflection returned an empty answer")
+    final_answer = _check_and_rewrite_answer(state, answer)
+    if not final_answer:
+        raise RuntimeError("check and rewrite returned an empty answer")
 
-    state["answer"] = reflected
+    state["answer"] = final_answer
     return state
 
 
-def rewrite_answer(state: AgentState) -> AgentState:
-    answer = (state.get("answer") or "").strip()
-    rewritten = _rewrite_answer(state, answer)
-    if rewritten:
-        state["answer"] = rewritten
-    return state
-
-
-def _reflect_answer(state: AgentState, answer: str) -> str:
+def _check_and_rewrite_answer(state: AgentState, answer: str) -> str:
     history = _format_history(state.get("history", []))
-    prompt = REFLECTION_PROMPT.format(
+    prompt = CHECK_AND_REWRITE_PROMPT.format(
         history=history,
         image_summary=state.get("image_summary", NO_IMAGE_SUMMARY),
         contexts=state.get("contexts", ""),
@@ -160,20 +173,7 @@ def _reflect_answer(state: AgentState, answer: str) -> str:
         question=state["question"],
         answer=answer,
     )
-    return _invoke_chat(prompt, error_context="reflect answer")
-
-
-def _rewrite_answer(state: AgentState, answer: str) -> str:
-    history = _format_history(state.get("history", []))
-    prompt = REWRITE_PROMPT.format(
-        history=history,
-        image_summary=state.get("image_summary", NO_IMAGE_SUMMARY),
-        contexts=state.get("contexts", ""),
-        common_policy=COMMON_POLICY,
-        question=state["question"],
-        answer=answer,
-    )
-    return _invoke_chat(prompt, error_context="rewrite answer")
+    return _invoke_chat(prompt, error_context="check and rewrite answer")
 
 
 def save_memory(state: AgentState) -> AgentState:

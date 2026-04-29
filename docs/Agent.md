@@ -27,7 +27,6 @@ START
   -> retrieve_context
   -> generate_answer
   -> check_answer
-  -> rewrite_answer
   -> save_memory
   -> END
 ```
@@ -56,14 +55,10 @@ START
 
 `check_answer`
 
-- 调用同一个 `CHAT_MODEL` 做 reflection。
-- 检查候选回答是否完整、礼貌、无编造、是否保留 `<PIC>` 标记。
-- 合格则原样返回；不合格则输出修正后的最终客服回复。
-
-`rewrite_answer`
-
-- 调用同一个 `CHAT_MODEL` 对已核验回答做语气改写。
-- 只让回复更自然、更有人情味，不新增事实、承诺、金额、时效或商品参数。
+- 调用同一个 `CHAT_MODEL` 一次性完成 reflection 和 rewrite。
+- 检查候选回答是否完整、无编造、是否保留 `<PIC>` 标记。
+- 同时把表达润色成自然、温和、可直接发送给用户的客服回复。
+- 不新增事实、承诺、金额、时效或商品参数。
 
 `save_memory`
 
