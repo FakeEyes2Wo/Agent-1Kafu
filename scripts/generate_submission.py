@@ -12,10 +12,15 @@ from tqdm import tqdm
 
 from kefu_agent.config import PROJECT_ROOT, get_settings
 from kefu_agent.graph import answer_question_async
-from kefu_agent.rag import format_contexts, retrieve
+from kefu_agent.rag import (
+    MANUAL_LANGUAGE_FILTER_VERSION,
+    RAG_CONTEXT_FORMAT_VERSION,
+    format_contexts,
+    retrieve,
+)
 
 
-CONTEXT_CACHE_VERSION = 3
+CONTEXT_CACHE_VERSION = 4
 # utf-8-sig writes a UTF-8 BOM and reads both BOM and non-BOM UTF-8 CSV files.
 CSV_ENCODING = "utf-8-sig"
 
@@ -50,7 +55,7 @@ async def main_async(args: argparse.Namespace) -> None:
         qid: answer
         for qid, answer in _load_completed_rows(output_path).items()
         if qid in question_ids
-    }
+    } if not args.force else {}
     rows_by_id = dict(completed)
     write_submission(question_path, output_path, fieldnames, rows_by_id)
     contexts_by_id = prepare_context_cache(questions, context_cache_path, settings)
@@ -94,6 +99,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         default=None,
         help="Path to the retrieval contexts cache JSON file.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Regenerate all answers instead of resuming completed rows in submission.csv.",
     )
     return parser.parse_args(argv)
 
@@ -205,6 +215,8 @@ def _context_cache_signature(settings) -> dict:
         "rerank_enabled": settings.rerank_enabled,
         "rerank_model": settings.rerank_model,
         "rerank_top_n": settings.rerank_top_n,
+        "manual_language_filter_version": MANUAL_LANGUAGE_FILTER_VERSION,
+        "rag_context_format_version": RAG_CONTEXT_FORMAT_VERSION,
     }
 
 

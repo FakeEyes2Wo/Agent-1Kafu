@@ -2,6 +2,7 @@ from pathlib import Path
 import argparse
 import csv
 import sys
+from tqdm import tqdm
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -27,7 +28,10 @@ def main(argv: list[str] | None = None) -> None:
     if args.limit is not None:
         rows = rows[: max(0, args.limit)]
 
-    output = [_evaluate_row(row) for row in rows]
+    output = [
+        _evaluate_row(row)
+        for row in tqdm(rows, desc="Evaluating retrieval", unit="question", dynamic_ncols=True)
+    ]
     _write_eval(output_path, output)
     print(f"eval_path={output_path}")
     print(f"rows={len(output)}")

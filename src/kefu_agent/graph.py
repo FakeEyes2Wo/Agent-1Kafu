@@ -3,8 +3,9 @@ import time
 import uuid
 from typing import TypedDict
 
-from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
+from langchain.chat_models import init_chat_model
+from langchain.messages import HumanMessage
+from langchain_core.output_parsers import StrOutputParser
 from langgraph.graph import END, START, StateGraph
 
 from .config import get_settings
@@ -14,11 +15,13 @@ from .prompts import (
     COMMON_POLICY,
     IMAGE_SUMMARY_PROMPT,
 )
-from .rag import format_contexts, retrieve
+from .rag import format_answer_with_image_list, format_contexts, retrieve
 
 
 NO_IMAGE_SUMMARY = "无"
 GENERAL_POLICY_CONTEXT = "通用客服政策题：优先使用通用客服政策参考，不引用无关商品手册。"
+CHAT_MAX_TOKENS = 450
+_OUTPUT_PARSER = StrOutputParser()
 GENERAL_POLICY_KEYWORDS = (
     "7天",
     "七天",
@@ -149,8 +152,18 @@ def summarize_images(state: AgentState) -> AgentState:
         ]
         for image in images[:3]:
             content.append({"type": "image_url", "image_url": {"url": image}})
-        llm = _chat_llm(model=settings.vision_model, base_url=settings.vision_base_url)
-        state["image_summary"] = str(llm.invoke([HumanMessage(content=content)]).content)
+        model = init_chat_model(
+            model=settings.vision_model,
+            model_provider="openai",
+            api_key=settings.openai_api_key,
+            base_url=settings.vision_base_url,
+            temperature=0,
+            timeout=settings.model_timeout_seconds,
+            max_retries=1,
+        )
+        state["image_summary"] = _OUTPUT_PARSER.invoke(
+            model.invoke([HumanMessage(content=content)])
+        ).strip()
     except Exception:
         state["image_summary"] = (
             "图片解析失败；请结合文字问题回答，必要时要求用户补充图片信息。"
@@ -206,7 +219,9 @@ def check_answer(state: AgentState) -> AgentState:
     if not final_answer:
         raise RuntimeError("check and rewrite returned an empty answer")
 
-    state["answer"] = final_answer
+    state["answer"] = format_answer_with_image_list(
+        final_answer, state.get("contexts", "")
+    )
     return state
 
 
@@ -233,27 +248,20 @@ def response_payload(answer: str, session_id: str) -> dict:
     }
 
 
-def _chat_llm(model: str, base_url: str, temperature: float = 0) -> ChatOpenAI:
-    settings = get_settings()
-    return ChatOpenAI(
-        model=model,
-        api_key=settings.openai_api_key,
-        base_url=base_url,
-        temperature=temperature,
-        timeout=settings.model_timeout_seconds,
-        max_retries=1,
-    )
-
-
 def _invoke_chat(prompt: str, error_context: str) -> str:
     settings = get_settings()
     try:
-        llm = _chat_llm(
+        model = init_chat_model(
             model=settings.chat_model,
+            model_provider="openai",
+            api_key=settings.openai_api_key,
             base_url=settings.openai_base_url,
             temperature=0.2,
+            max_tokens=CHAT_MAX_TOKENS,
+            timeout=settings.model_timeout_seconds,
+            max_retries=1,
         )
-        return str(llm.invoke(prompt).content).strip()
+        return _OUTPUT_PARSER.invoke(model.invoke([HumanMessage(content=prompt)])).strip()
     except Exception as exc:
         raise RuntimeError(f"failed to {error_context} with chat model") from exc
 

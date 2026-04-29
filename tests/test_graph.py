@@ -1,5 +1,7 @@
 import asyncio
 
+from langchain.messages import AIMessage
+
 from kefu_agent import graph
 
 
@@ -117,7 +119,7 @@ def test_check_answer_checks_and_rewrites_once(monkeypatch):
     assert "简洁性检查" in calls[-1][0]
     assert "80-180 中文字" in calls[-1][0]
     assert "最多列 2-3 个必要项" in calls[-1][0]
-    assert "<PIC 图片ID：...>" in calls[-1][0]
+    assert "<PIC> 图片ID </PIC>" in calls[-1][0]
 
 
 def test_generate_answer_uses_reflection_when_initial_answer_is_empty(monkeypatch):
@@ -173,5 +175,64 @@ def test_generate_answer_prompt_has_language_rule_and_no_history(monkeypatch):
     assert "80-180 中文字" in prompts[-1]
     assert "只有证据不足" in prompts[-1]
     assert "禁止引入无关商品手册" in prompts[-1]
-    assert "<PIC 图片ID：...>" in prompts[-1]
+    assert "<PIC> 图片ID </PIC>" in prompts[-1]
     assert "历史对话" not in prompts[-1]
+
+
+def test_invoke_chat_uses_langchain_v1_init_chat_model(monkeypatch):
+    calls = {}
+
+    class Settings:
+        chat_model = "chat-model"
+        openai_api_key = "test-key"
+        openai_base_url = "https://example.test/v1"
+        model_timeout_seconds = 12
+
+    class FakeModel:
+        def invoke(self, messages):
+            calls["messages"] = messages
+            return AIMessage(content=" model answer ")
+
+    def fake_init_chat_model(**kwargs):
+        calls["kwargs"] = kwargs
+        return FakeModel()
+
+    monkeypatch.setattr(graph, "get_settings", lambda: Settings())
+    monkeypatch.setattr(graph, "init_chat_model", fake_init_chat_model)
+
+    answer = graph._invoke_chat("prompt text", "generate answer")
+
+    assert answer == "model answer"
+    assert calls["kwargs"] == {
+        "model": "chat-model",
+        "model_provider": "openai",
+        "api_key": "test-key",
+        "base_url": "https://example.test/v1",
+        "temperature": 0.2,
+        "max_tokens": graph.CHAT_MAX_TOKENS,
+        "timeout": 12,
+        "max_retries": 1,
+    }
+    assert calls["messages"][0].content == "prompt text"
+    assert not hasattr(graph, "_chat_llm")
+
+
+def test_check_answer_formats_pic_list_from_contexts(monkeypatch):
+    monkeypatch.setattr(
+        graph,
+        "_invoke_chat",
+        lambda prompt, error_context: (
+            "电池组充电中 <PIC> img_1 </PIC> 已充满 <PIC> img_2 </PIC>"
+        ),
+    )
+
+    state = graph.check_answer(
+        {
+            "question": "question",
+            "image_summary": graph.NO_IMAGE_SUMMARY,
+            "contexts": '证据 <PIC> img_1 </PIC> 已充满 <PIC> img_2 </PIC>\n可用图片：["img_1", "img_2"]',
+            "answer": "draft",
+        }
+    )
+
+    assert state["answer"] == '电池组充电中 <PIC> 已充满 <PIC>,["img_1", "img_2"]'

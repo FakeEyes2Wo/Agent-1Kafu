@@ -169,9 +169,9 @@ def test_context_cache_signature_includes_rag_fields():
 
     signature = _context_cache_signature(Settings())
 
-    assert CONTEXT_CACHE_VERSION == 3
+    assert CONTEXT_CACHE_VERSION == 4
     assert signature == {
-        "version": 3,
+        "version": 4,
         "embedding_backend": "hash",
         "embedding_model": "hash",
         "embedding_query_prompt_name": "",
@@ -181,6 +181,8 @@ def test_context_cache_signature_includes_rag_fields():
         "rerank_enabled": True,
         "rerank_model": "reranker",
         "rerank_top_n": 6,
+        "manual_language_filter_version": "1",
+        "rag_context_format_version": "3",
     }
 
 
@@ -282,4 +284,60 @@ def test_main_resumes_and_writes_blank_rows_for_missing_answers(monkeypatch, tmp
         "1,old answer\n"
         "2,new answer for missing\n"
         "3,new answer for also missing\n"
+    )
+
+
+def test_main_force_regenerates_existing_answers(monkeypatch, tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "question_public.csv").write_text(
+        'id,question\n1,"""done"""\n2,"""also done"""\n',
+        encoding="utf-8",
+    )
+    (data_dir / "submission_example.csv").write_text("id,ret\n1,example\n", encoding="utf-8")
+    (tmp_path / "submission.csv").write_text(
+        "id,ret\n1,old answer\n2,old answer 2\n",
+        encoding="utf-8",
+    )
+
+    class Settings:
+        pass
+
+    Settings.data_dir = data_dir
+    Settings.vectorstore_dir = tmp_path / "storage"
+
+    monkeypatch.setattr("scripts.generate_submission.get_settings", lambda: Settings())
+    monkeypatch.setattr("scripts.generate_submission.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "scripts.generate_submission.prepare_context_cache",
+        lambda questions, cache_path, settings: {
+            row["id"]: f"context {row['id']}" for row in questions
+        },
+    )
+
+    calls = []
+
+    async def fake_answer_question_async(
+        question,
+        session_id=None,
+        contexts=None,
+    ):
+        calls.append((question, session_id, contexts))
+        return f"new answer for {question}", session_id
+
+    monkeypatch.setattr(
+        "scripts.generate_submission.answer_question_async",
+        fake_answer_question_async,
+    )
+
+    main(["--workers", "2", "--force"])
+
+    assert calls == [
+        ("done", "submission_1", "context 1"),
+        ("also done", "submission_2", "context 2"),
+    ]
+    assert (tmp_path / "submission.csv").read_text(encoding="utf-8-sig") == (
+        "id,ret\n"
+        "1,new answer for done\n"
+        "2,new answer for also done\n"
     )
