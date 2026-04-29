@@ -15,8 +15,9 @@ from kefu_agent.graph import answer_question_async
 from kefu_agent.rag import format_contexts, retrieve
 
 
-CONTEXT_CACHE_VERSION = 1
-CSV_ENCODING = "utf-8"
+CONTEXT_CACHE_VERSION = 2
+# utf-8-sig writes a UTF-8 BOM and reads both BOM and non-BOM UTF-8 CSV files.
+CSV_ENCODING = "utf-8-sig"
 
 
 def clean_question(text: str) -> str:

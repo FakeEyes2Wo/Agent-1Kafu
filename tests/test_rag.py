@@ -6,6 +6,7 @@ from kefu_agent.rag import (
     HashEmbeddings,
     SentenceTransformerEmbeddings,
     cosine,
+    format_contexts,
     parse_manual,
     _rank_chunks,
     split_manual,
@@ -32,6 +33,26 @@ def test_split_manual_keeps_image_refs(monkeypatch):
     chunks = list(split_manual("manual", "# Title Body<PIC> more body", ["img_1"]))
     assert chunks
     assert chunks[0]["image_ids"] == ["img_1"]
+
+
+def test_format_contexts_inlines_pic_image_ids():
+    chunks = [
+        Chunk(
+            "a",
+            "manual",
+            "title",
+            "first step <PIC> second step <PIC> third step <PIC>",
+            ["img_1", "img_2"],
+            [1.0],
+        )
+    ]
+
+    text = format_contexts(chunks)
+
+    assert "图片ID：img_1, img_2" in text
+    assert "first step <PIC 图片ID：img_1>" in text
+    assert "second step <PIC 图片ID：img_2>" in text
+    assert "third step <PIC>" in text
 
 
 def test_sentence_transformer_query_uses_prompt_name():

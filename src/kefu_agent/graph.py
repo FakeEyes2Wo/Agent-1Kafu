@@ -18,6 +18,58 @@ from .rag import format_contexts, retrieve
 
 
 NO_IMAGE_SUMMARY = "无"
+GENERAL_POLICY_CONTEXT = "通用客服政策题：优先使用通用客服政策参考，不引用无关商品手册。"
+GENERAL_POLICY_KEYWORDS = (
+    "7天",
+    "七天",
+    "无理由",
+    "退换货",
+    "退货",
+    "换货",
+    "退款",
+    "退回",
+    "运费",
+    "邮费",
+    "快递费",
+    "发票",
+    "开票",
+    "抬头",
+    "投诉",
+    "颜色偏差",
+    "和图片不一样",
+    "物流",
+    "待揽收",
+    "发货",
+    "送到",
+    "乡镇",
+    "收货",
+    "订单",
+    "破损",
+    "少件",
+    "错发",
+    "漏发",
+    "补发",
+    "return",
+    "refund",
+    "shipping",
+    "invoice",
+    "complaint",
+    "delivery",
+    "logistics",
+    "wrong item",
+    "missing item",
+)
+GENERAL_REPAIR_KEYWORDS = (
+    "售后维修",
+    "维修服务",
+    "服务范围",
+    "人为损坏",
+    "维修费用",
+    "维修费",
+    "保修",
+    "质保",
+    "warranty",
+)
 
 
 class AgentState(TypedDict, total=False):
@@ -107,6 +159,10 @@ def summarize_images(state: AgentState) -> AgentState:
 
 
 def retrieve_context(state: AgentState) -> AgentState:
+    if _is_general_policy_question(state["question"]):
+        state["contexts"] = GENERAL_POLICY_CONTEXT
+        return state
+
     if "contexts" in state:
         return state
 
@@ -116,6 +172,13 @@ def retrieve_context(state: AgentState) -> AgentState:
         query = f"{query}\n{image_summary}"
     state["contexts"] = format_contexts(retrieve(query))
     return state
+
+
+def _is_general_policy_question(question: str) -> bool:
+    normalized = question.lower()
+    if any(keyword in normalized for keyword in GENERAL_POLICY_KEYWORDS):
+        return True
+    return any(keyword in normalized for keyword in GENERAL_REPAIR_KEYWORDS)
 
 
 def generate_answer(state: AgentState) -> AgentState:

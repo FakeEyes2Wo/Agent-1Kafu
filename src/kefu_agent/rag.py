@@ -201,10 +201,23 @@ def format_contexts(chunks: Iterable[Chunk]) -> str:
     blocks = []
     for i, chunk in enumerate(chunks, start=1):
         image_text = f" 图片ID：{', '.join(chunk.image_ids)}" if chunk.image_ids else ""
+        text = _inline_pic_image_ids(chunk.text, chunk.image_ids)
         blocks.append(
-            f"[{i}] 来源：{chunk.manual} / {chunk.title}{image_text}\n{chunk.text}"
+            f"[{i}] 来源：{chunk.manual} / {chunk.title}{image_text}\n{text}"
         )
     return "\n\n".join(blocks)
+
+
+def _inline_pic_image_ids(text: str, image_ids: list[str]) -> str:
+    image_iter = iter(image_ids)
+
+    def replace_pic(match: re.Match[str]) -> str:
+        image_id = next(image_iter, None)
+        if image_id is None:
+            return match.group(0)
+        return f"<PIC 图片ID：{image_id}>"
+
+    return re.sub(r"<PIC>", replace_pic, text)
 
 
 def _index_metadata_matches(settings: Settings) -> bool:

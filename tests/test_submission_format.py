@@ -55,18 +55,18 @@ def test_write_submission_preserves_question_order_and_blanks_missing_answers(tm
         {"3": "answer 3", "2": "answer 2", "1": "answer 1"},
     )
 
-    assert output_path.read_text(encoding="utf-8") == (
+    assert output_path.read_text(encoding="utf-8-sig") == (
         "id,ret\n1,answer 1\n2,answer 2\n3,answer 3\n"
     )
 
     write_submission(question_path, output_path, ["id", "ret"], {"3": "answer 3"})
 
-    assert output_path.read_text(encoding="utf-8") == (
+    assert output_path.read_text(encoding="utf-8-sig") == (
         "id,ret\n1,\n2,\n3,answer 3\n"
     )
 
 
-def test_write_submission_uses_utf8_without_bom(tmp_path):
+def test_write_submission_uses_utf8_with_bom(tmp_path):
     question_path = tmp_path / "question_public.csv"
     output_path = tmp_path / "submission.csv"
     question_path.write_text(
@@ -82,8 +82,8 @@ def test_write_submission_uses_utf8_without_bom(tmp_path):
     )
 
     raw = output_path.read_bytes()
-    assert not raw.startswith(b"\xef\xbb\xbf")
-    assert raw.decode("utf-8").replace("\r\n", "\n") == "id,ret\n1,您好，问题已收到\n"
+    assert raw.startswith(b"\xef\xbb\xbf")
+    assert raw.decode("utf-8-sig").replace("\r\n", "\n") == "id,ret\n1,您好，问题已收到\n"
 
 
 def test_validate_submission_requires_complete_rows(tmp_path):
@@ -241,7 +241,7 @@ def test_main_resumes_and_writes_blank_rows_for_missing_answers(monkeypatch, tmp
         ("missing", "submission_2", "context 2"),
         ("also missing", "submission_3", "context 3"),
     ]
-    assert (tmp_path / "submission.csv").read_text(encoding="utf-8") == (
+    assert (tmp_path / "submission.csv").read_text(encoding="utf-8-sig") == (
         "id,ret\n"
         "1,old answer\n"
         "2,new answer for missing\n"
