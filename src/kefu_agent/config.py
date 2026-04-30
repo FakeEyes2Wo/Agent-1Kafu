@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     rerank_enabled: bool = False
     rerank_model: str = "BAAI/bge-reranker-v2-m3"
     rerank_top_n: int = 8
+    visual_retriever: str = "lexical"
+    visual_top_k: int = 8
     model_timeout_seconds: float = 60
 
     def model_post_init(self, __context: object) -> None:

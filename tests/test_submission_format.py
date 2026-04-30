@@ -166,12 +166,14 @@ def test_context_cache_signature_includes_rag_fields():
         rerank_enabled = True
         rerank_model = "reranker"
         rerank_top_n = 6
+        visual_retriever = "lexical"
+        visual_top_k = 5
 
     signature = _context_cache_signature(Settings())
 
-    assert CONTEXT_CACHE_VERSION == 4
+    assert CONTEXT_CACHE_VERSION == 7
     assert signature == {
-        "version": 4,
+        "version": 7,
         "embedding_backend": "hash",
         "embedding_model": "hash",
         "embedding_query_prompt_name": "",
@@ -182,7 +184,12 @@ def test_context_cache_signature_includes_rag_fields():
         "rerank_model": "reranker",
         "rerank_top_n": 6,
         "manual_language_filter_version": "1",
-        "rag_context_format_version": "3",
+        "manual_pic_tag_version": "1",
+        "hybrid_search_version": "1",
+        "visual_retriever_version": "1",
+        "visual_retriever": "lexical",
+        "visual_top_k": 5,
+        "rag_context_format_version": "6",
     }
 
 

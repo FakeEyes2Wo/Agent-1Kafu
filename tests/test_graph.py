@@ -73,6 +73,13 @@ def test_general_policy_question_overrides_retrieval_context(monkeypatch):
     assert state["contexts"] == graph.GENERAL_POLICY_CONTEXT
 
 
+def test_expanded_general_policy_keywords_skip_manual_retrieval():
+    assert graph._is_general_policy_question("商品保质期还有1个月就过期了怎么办？")
+    assert graph._is_general_policy_question("纸质版说明书和电子版在哪里找？")
+    assert graph._is_general_policy_question("上门安装人员额外收取配件费怎么办？")
+    assert graph._is_general_policy_question("收到二手商品还有污渍，我要投诉")
+
+
 def test_manual_question_still_uses_retrieval(monkeypatch):
     calls = []
 
@@ -119,7 +126,9 @@ def test_check_answer_checks_and_rewrites_once(monkeypatch):
     assert "简洁性检查" in calls[-1][0]
     assert "80-180 中文字" in calls[-1][0]
     assert "最多列 2-3 个必要项" in calls[-1][0]
-    assert "<PIC> 图片ID </PIC>" in calls[-1][0]
+    assert "只保留裸 `<PIC>`" in calls[-1][0]
+    assert "禁止输出任何图片 ID" in calls[-1][0]
+    assert "不使用 Markdown 粗体" in calls[-1][0]
 
 
 def test_generate_answer_uses_reflection_when_initial_answer_is_empty(monkeypatch):
@@ -173,9 +182,11 @@ def test_generate_answer_prompt_has_language_rule_and_no_history(monkeypatch):
     assert "图片信息映射规则" in prompts[-1]
     assert "简洁优先" in prompts[-1]
     assert "80-180 中文字" in prompts[-1]
+    assert "不使用 Markdown 粗体" in prompts[-1]
     assert "只有证据不足" in prompts[-1]
     assert "禁止引入无关商品手册" in prompts[-1]
-    assert "<PIC> 图片ID </PIC>" in prompts[-1]
+    assert "只在对应步骤、部件、状态或操作旁边输出裸 `<PIC>`" in prompts[-1]
+    assert "禁止输出任何图片 ID" in prompts[-1]
     assert "历史对话" not in prompts[-1]
 
 
@@ -218,6 +229,10 @@ def test_invoke_chat_uses_langchain_v1_init_chat_model(monkeypatch):
 
 
 def test_check_answer_formats_pic_list_from_contexts(monkeypatch):
+    monkeypatch.setattr(
+        "kefu_agent.rag.images._valid_image_ids",
+        lambda image_dir: frozenset(),
+    )
     monkeypatch.setattr(
         graph,
         "_invoke_chat",

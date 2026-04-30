@@ -13,14 +13,17 @@ from tqdm import tqdm
 from kefu_agent.config import PROJECT_ROOT, get_settings
 from kefu_agent.graph import answer_question_async
 from kefu_agent.rag import (
+    HYBRID_SEARCH_VERSION,
     MANUAL_LANGUAGE_FILTER_VERSION,
+    MANUAL_PIC_TAG_VERSION,
     RAG_CONTEXT_FORMAT_VERSION,
+    VISUAL_RETRIEVER_VERSION,
     format_contexts,
     retrieve,
 )
 
 
-CONTEXT_CACHE_VERSION = 4
+CONTEXT_CACHE_VERSION = 7
 # utf-8-sig writes a UTF-8 BOM and reads both BOM and non-BOM UTF-8 CSV files.
 CSV_ENCODING = "utf-8-sig"
 
@@ -216,6 +219,11 @@ def _context_cache_signature(settings) -> dict:
         "rerank_model": settings.rerank_model,
         "rerank_top_n": settings.rerank_top_n,
         "manual_language_filter_version": MANUAL_LANGUAGE_FILTER_VERSION,
+        "manual_pic_tag_version": MANUAL_PIC_TAG_VERSION,
+        "hybrid_search_version": HYBRID_SEARCH_VERSION,
+        "visual_retriever_version": VISUAL_RETRIEVER_VERSION,
+        "visual_retriever": getattr(settings, "visual_retriever", "lexical"),
+        "visual_top_k": getattr(settings, "visual_top_k", 8),
         "rag_context_format_version": RAG_CONTEXT_FORMAT_VERSION,
     }
 

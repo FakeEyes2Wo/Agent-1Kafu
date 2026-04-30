@@ -12,12 +12,16 @@ from kefu_agent.rag import (
     format_contexts,
     parse_manual,
     retrieve,
+    visual_retrieve,
+    _image_context_text,
     _metadata_image_ids,
     _node_to_chunk,
     _rank_chunks,
+    _visual_chunks,
     _manual_language,
     _manual_language_filters,
     _query_manual_language,
+    _reciprocal_rank_fusion,
     _rerank_nodes,
     _resolve_hf_model_name,
     _write_index_metadata,
@@ -41,7 +45,12 @@ def _rag_settings(tmp_path: Path, **overrides):
         rerank_enabled=False,
         rerank_model="fake-reranker",
         rerank_top_n=8,
+        visual_retriever="lexical",
+        visual_top_k=8,
         top_k=8,
+        manual_dir=tmp_path / "manuals",
+        chunk_size=700,
+        chunk_overlap=120,
     )
     for name, value in overrides.items():
         setattr(settings, name, value)
@@ -61,6 +70,7 @@ def test_parse_manual_json_shape(tmp_path):
     path.write_text('["# Title\\nBody<PIC>", ["img_1"]]', encoding="utf-8")
     text, images = parse_manual(path)
     assert "Body" in text
+    assert "<PIC>img_1</PIC>" in text
     assert images == ["img_1"]
 
 
@@ -104,9 +114,9 @@ def test_build_index_uses_llamaindex_backend(monkeypatch, tmp_path):
     import llama_index.core
 
     monkeypatch.setattr(llama_index.core, "VectorStoreIndex", FakeVectorStoreIndex)
-    monkeypatch.setattr("kefu_agent.rag.get_settings", lambda: settings)
+    monkeypatch.setattr("kefu_agent.rag.retrieval.get_settings", lambda: settings)
     monkeypatch.setattr(
-        "kefu_agent.rag.load_manual_chunks",
+        "kefu_agent.rag.retrieval.load_manual_chunks",
         lambda: iter(
             [
                 {
@@ -119,8 +129,8 @@ def test_build_index_uses_llamaindex_backend(monkeypatch, tmp_path):
             ]
         ),
     )
-    monkeypatch.setattr("kefu_agent.rag._manual_chunks_to_nodes", lambda chunks: chunks)
-    monkeypatch.setattr("kefu_agent.rag._llama_embed_model_cached", lambda *args: "embed")
+    monkeypatch.setattr("kefu_agent.rag.retrieval._manual_chunks_to_nodes", lambda chunks: chunks)
+    monkeypatch.setattr("kefu_agent.rag.retrieval._llama_embed_model_cached", lambda *args: "embed")
 
     assert build_index() == 1
     assert calls["nodes"][0]["id"] == "manual-1"
@@ -159,9 +169,9 @@ def test_retrieve_returns_chunks_from_llamaindex_nodes(monkeypatch, tmp_path):
             calls["filters"] = filters
             return FakeRetriever()
 
-    monkeypatch.setattr("kefu_agent.rag.get_settings", lambda: settings)
+    monkeypatch.setattr("kefu_agent.rag.retrieval.get_settings", lambda: settings)
     monkeypatch.setattr(
-        "kefu_agent.rag._load_llama_index",
+        "kefu_agent.rag.retrieval._load_llama_index",
         lambda persist_dir, embedding_model, model_dir: FakeIndex(),
     )
 
@@ -194,15 +204,60 @@ def test_retrieve_filters_llamaindex_to_english_manuals(monkeypatch, tmp_path):
             calls["filters"] = filters
             return FakeRetriever()
 
-    monkeypatch.setattr("kefu_agent.rag.get_settings", lambda: settings)
+    monkeypatch.setattr("kefu_agent.rag.retrieval.get_settings", lambda: settings)
     monkeypatch.setattr(
-        "kefu_agent.rag._load_llama_index",
+        "kefu_agent.rag.retrieval._load_llama_index",
         lambda persist_dir, embedding_model, model_dir: FakeIndex(),
+    )
+    monkeypatch.setattr(
+        "kefu_agent.rag.retrieval._lexical_retrieve",
+        lambda query, manual_language, top_k: [],
+    )
+    monkeypatch.setattr(
+        "kefu_agent.rag.retrieval._visual_retrieve",
+        lambda query, manual_language, top_k: [],
     )
 
     assert retrieve("How do I charge it?", top_k=1) == []
     assert calls["filters"].filters[0].key == "manual_language"
     assert calls["filters"].filters[0].value == "en"
+
+
+def test_retrieve_merges_lexical_candidates_with_vector_results(monkeypatch, tmp_path):
+    settings = _rag_settings(tmp_path)
+    settings.llamaindex_dir.mkdir(parents=True)
+    (settings.llamaindex_dir / "docstore.json").write_text("{}", encoding="utf-8")
+    settings.vectorstore_dir.mkdir(parents=True)
+    _write_index_metadata(settings, [])
+
+    vector_node = SimpleNamespace(node_id="vector", metadata={}, text="vector")
+    lexical_chunk = Chunk("lexical", "manual", "title", "lexical text", [], [])
+
+    class FakeRetriever:
+        def retrieve(self, query):
+            return [vector_node]
+
+    class FakeIndex:
+        def as_retriever(self, similarity_top_k, filters=None):
+            return FakeRetriever()
+
+    monkeypatch.setattr("kefu_agent.rag.retrieval.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "kefu_agent.rag.retrieval._load_llama_index",
+        lambda persist_dir, embedding_model, model_dir: FakeIndex(),
+    )
+    monkeypatch.setattr(
+        "kefu_agent.rag.retrieval._lexical_retrieve",
+        lambda query, manual_language, top_k: [lexical_chunk],
+    )
+    monkeypatch.setattr(
+        "kefu_agent.rag.retrieval._visual_retrieve",
+        lambda query, manual_language, top_k: [],
+    )
+
+    chunks = retrieve("普通问题", top_k=2)
+
+    assert [chunk.id for chunk in chunks] == ["vector", "lexical"]
 
 
 def test_rerank_orders_nodes(monkeypatch, tmp_path):
@@ -215,10 +270,57 @@ def test_rerank_orders_nodes(monkeypatch, tmp_path):
 
     low = SimpleNamespace(text="low")
     high = SimpleNamespace(text="high")
-    monkeypatch.setattr("kefu_agent.rag.get_settings", lambda: settings)
-    monkeypatch.setattr("kefu_agent.rag._get_reranker", lambda *args: FakeReranker())
+    monkeypatch.setattr("kefu_agent.rag.retrieval.get_settings", lambda: settings)
+    monkeypatch.setattr("kefu_agent.rag.retrieval._get_reranker", lambda *args: FakeReranker())
 
     assert _rerank_nodes("query", [low, high], top_n=2) == [high, low]
+
+
+def test_reciprocal_rank_fusion_promotes_overlap():
+    vector_a = SimpleNamespace(node_id="a", metadata={}, text="a")
+    vector_b = SimpleNamespace(node_id="b", metadata={}, text="b")
+    lexical_b = Chunk("b", "manual", "title", "b", [], [])
+    lexical_c = Chunk("c", "manual", "title", "c", [], [])
+
+    fused = _reciprocal_rank_fusion([[vector_a, vector_b], [lexical_b, lexical_c]])
+
+    assert [getattr(item, "node_id", getattr(item, "id", "")) for item in fused] == [
+        "b",
+        "a",
+        "c",
+    ]
+
+
+def test_visual_retrieve_builds_single_image_context(monkeypatch, tmp_path):
+    settings = _rag_settings(tmp_path, visual_top_k=2)
+    manual_chunks = [
+        {
+            "id": "manual-1",
+            "manual": "manual",
+            "title": "glass cleaning",
+            "text": "wipe first <PIC>img_glass</PIC> then store <PIC>img_other</PIC>",
+            "image_ids": ["img_glass", "img_other"],
+            "manual_language": "en",
+        }
+    ]
+    monkeypatch.setattr("kefu_agent.rag.visual.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "kefu_agent.rag.visual.load_manual_chunks",
+        lambda: iter(manual_chunks),
+    )
+    _visual_chunks.cache_clear()
+
+    chunks = visual_retrieve("glass cleaning", "en", top_k=2)
+
+    assert chunks[0].image_ids == ["img_glass"]
+    assert "<PIC>img_glass</PIC>" in chunks[0].text
+    assert "img_other" not in chunks[0].text
+
+
+def test_image_context_text_keeps_only_target_pic():
+    text = "before <PIC>target</PIC> between <PIC>other</PIC> after"
+
+    assert _image_context_text(text, "target") == "before <PIC>target</PIC> between after"
 
 
 def test_metadata_preserves_image_ids():
@@ -249,12 +351,13 @@ def test_format_contexts_keeps_pic_placeholders_and_lists_image_ids():
     text = format_contexts(chunks)
 
     assert '可用图片：["img_1", "img_2"]' in text
-    assert "first step <PIC> img_1 </PIC>" in text
-    assert "second step <PIC> img_2 </PIC>" in text
+    assert "first step <PIC>img_1</PIC>" in text
+    assert "second step <PIC>img_2</PIC>" in text
     assert "third step <PIC>" in text
 
 
-def test_format_answer_with_image_list_uses_pic_order_from_contexts():
+def test_format_answer_with_image_list_uses_pic_order_from_contexts(monkeypatch):
+    monkeypatch.setattr("kefu_agent.rag.images._valid_image_ids", lambda image_dir: frozenset())
     contexts = 'text <PIC> img_1 </PIC> and <PIC> img_2 </PIC>\n可用图片：["img_1", "img_2"]'
 
     answer = format_answer_with_image_list(
@@ -264,7 +367,10 @@ def test_format_answer_with_image_list_uses_pic_order_from_contexts():
     assert answer == '第一步 <PIC> 第二步 <PIC>,["img_1", "img_2"]'
 
 
-def test_format_answer_with_image_list_falls_back_to_context_order_for_bare_pics():
+def test_format_answer_with_image_list_falls_back_to_context_order_for_bare_pics(
+    monkeypatch,
+):
+    monkeypatch.setattr("kefu_agent.rag.images._valid_image_ids", lambda image_dir: frozenset())
     contexts = 'text <PIC> img_1 </PIC> and <PIC> img_2 </PIC>\n可用图片：["img_1", "img_2"]'
 
     answer = format_answer_with_image_list("第一步 <PIC> 第二步 <PIC>", contexts)
@@ -272,14 +378,58 @@ def test_format_answer_with_image_list_falls_back_to_context_order_for_bare_pics
     assert answer == '第一步 <PIC> 第二步 <PIC>,["img_1", "img_2"]'
 
 
-def test_format_answer_with_image_list_normalizes_old_inline_ids():
+def test_format_answer_with_image_list_filters_invalid_image_ids(monkeypatch):
+    monkeypatch.setattr(
+        "kefu_agent.rag.images._valid_image_ids",
+        lambda image_dir: frozenset({"img_1", "img_2"}),
+    )
     contexts = 'text <PIC> img_1 </PIC> and <PIC> img_2 </PIC>\n可用图片：["img_1", "img_2"]'
 
     answer = format_answer_with_image_list(
         "第一步 <PIC 图片ID：img_9> 第二步 <PIC>", contexts
     )
 
-    assert answer == '第一步 <PIC> 第二步 <PIC>,["img_9", "img_1"]'
+    assert answer == '第一步 <PIC> 第二步 <PIC>,["img_1", "img_2"]'
+
+
+def test_format_answer_with_image_list_ignores_model_image_ids(monkeypatch):
+    monkeypatch.setattr(
+        "kefu_agent.rag.images._valid_image_ids",
+        lambda image_dir: frozenset({"ctx_1", "ctx_2", "wrong_1"}),
+    )
+    contexts = 'evidence <PIC>ctx_1</PIC> more <PIC>ctx_2</PIC>\n可用图片：["ctx_1", "ctx_2"]'
+
+    answer = format_answer_with_image_list(
+        '第一步 <PIC>wrong_1</PIC> 第二步 <PIC 图片ID：wrong_2>,["wrong_3"]',
+        contexts,
+    )
+
+    assert answer == '第一步 <PIC> 第二步 <PIC>,["ctx_1", "ctx_2"]'
+
+
+def test_format_answer_with_image_list_removes_pics_without_context_images(monkeypatch):
+    monkeypatch.setattr("kefu_agent.rag.images._valid_image_ids", lambda image_dir: frozenset())
+
+    answer = format_answer_with_image_list(
+        "press the lights <PIC> then brush <PIC>",
+        "evidence without images",
+    )
+
+    assert answer == "press the lights then brush"
+
+
+def test_format_answer_with_image_list_trims_extra_pics(monkeypatch):
+    monkeypatch.setattr(
+        "kefu_agent.rag.images._valid_image_ids",
+        lambda image_dir: frozenset({"img_1"}),
+    )
+
+    answer = format_answer_with_image_list(
+        "first <PIC> second <PIC> third <PIC>",
+        'evidence <PIC>img_1</PIC>\n可用图片：["img_1"]',
+    )
+
+    assert answer == 'first <PIC> second third,["img_1"]'
 
 
 def test_format_answer_with_image_list_preserves_answers_without_pics():
