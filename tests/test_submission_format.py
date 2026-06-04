@@ -1,3 +1,5 @@
+import pytest
+
 from scripts.generate_submission import (
     CONTEXT_CACHE_VERSION,
     _context_cache_signature,
@@ -9,6 +11,7 @@ from scripts.generate_submission import (
     validate_submission,
     write_submission,
 )
+from scripts.join_question_answer import join_question_answer, write_question_answer
 
 
 def test_clean_question_multiline_csv_cell():
@@ -97,12 +100,8 @@ def test_validate_submission_requires_complete_rows(tmp_path):
     )
     output_path.write_text("id,ret\n1,answer 1\n", encoding="utf-8")
 
-    try:
+    with pytest.raises(RuntimeError, match="row count"):
         validate_submission(question_path, output_path)
-    except RuntimeError as exc:
-        assert "row count" in str(exc)
-    else:
-        raise AssertionError("validate_submission should reject partial output")
 
 
 def test_validate_submission_allows_blank_answers_when_ids_match(tmp_path):
@@ -171,9 +170,9 @@ def test_context_cache_signature_includes_rag_fields():
 
     signature = _context_cache_signature(Settings())
 
-    assert CONTEXT_CACHE_VERSION == 7
+    assert CONTEXT_CACHE_VERSION == 8
     assert signature == {
-        "version": 7,
+        "version": 8,
         "embedding_backend": "hash",
         "embedding_model": "hash",
         "embedding_query_prompt_name": "",
@@ -185,11 +184,11 @@ def test_context_cache_signature_includes_rag_fields():
         "rerank_top_n": 6,
         "manual_language_filter_version": "1",
         "manual_pic_tag_version": "1",
-        "hybrid_search_version": "1",
+        "hybrid_search_version": "2",
         "visual_retriever_version": "1",
         "visual_retriever": "lexical",
         "visual_top_k": 5,
-        "rag_context_format_version": "6",
+        "rag_context_format_version": "7",
     }
 
 
@@ -348,3 +347,55 @@ def test_main_force_regenerates_existing_answers(monkeypatch, tmp_path):
         "1,new answer for done\n"
         "2,new answer for also done\n"
     )
+
+
+def test_join_question_answer_uses_submission_answers(tmp_path):
+    question_path = tmp_path / "question_public.csv"
+    submission_path = tmp_path / "submission.csv"
+    output_path = tmp_path / "question_answer.csv"
+    question_path.write_text(
+        'id,question\n1,"""first"",\n""second"""\n2,"""single"""\n',
+        encoding="utf-8",
+    )
+    submission_path.write_text(
+        "id,ret\n1,answer 1\n2,answer 2\n",
+        encoding="utf-8",
+    )
+
+    rows = join_question_answer(question_path, submission_path)
+    write_question_answer(output_path, rows)
+
+    assert rows == [
+        {
+            "id": "1",
+            "question": "first\nsecond",
+            "answer": "answer 1",
+            "qa_text": "Question:\nfirst\nsecond\n\nAnswer:\nanswer 1",
+        },
+        {
+            "id": "2",
+            "question": "single",
+            "answer": "answer 2",
+            "qa_text": "Question:\nsingle\n\nAnswer:\nanswer 2",
+        },
+    ]
+    assert output_path.read_text(encoding="utf-8-sig").startswith(
+        "id,question,answer,qa_text"
+    )
+
+
+def test_join_question_answer_rejects_missing_answers_by_default(tmp_path):
+    question_path = tmp_path / "question_public.csv"
+    submission_path = tmp_path / "submission.csv"
+    question_path.write_text(
+        'id,question\n1,"""first"""\n2,"""second"""\n',
+        encoding="utf-8",
+    )
+    submission_path.write_text("id,ret\n1,answer 1\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="missing answers"):
+        join_question_answer(question_path, submission_path)
+
+    rows = join_question_answer(question_path, submission_path, require_complete=False)
+
+    assert rows[-1]["answer"] == ""

@@ -19,11 +19,12 @@ from kefu_agent.rag import (
     RAG_CONTEXT_FORMAT_VERSION,
     VISUAL_RETRIEVER_VERSION,
     format_contexts,
+    read_json_file,
     retrieve,
 )
 
 
-CONTEXT_CACHE_VERSION = 7
+CONTEXT_CACHE_VERSION = 8
 # utf-8-sig writes a UTF-8 BOM and reads both BOM and non-BOM UTF-8 CSV files.
 CSV_ENCODING = "utf-8-sig"
 
@@ -187,9 +188,8 @@ def prepare_context_cache(
 def _load_context_cache(cache_path: Path, signature: dict) -> dict:
     if not cache_path.exists():
         return {"signature": signature, "items": {}}
-    try:
-        cache = json.loads(cache_path.read_text(encoding="utf-8"))
-    except Exception:
+    cache = read_json_file(cache_path)
+    if not isinstance(cache, dict):
         return {"signature": signature, "items": {}}
     if cache.get("signature") != signature or not isinstance(cache.get("items"), dict):
         return {"signature": signature, "items": {}}
@@ -246,46 +246,36 @@ async def _generate_missing_answers(
     workers: int,
     progress: tqdm,
 ) -> None:
-    queue: asyncio.Queue[dict[str, str]] = asyncio.Queue()
+    worker_count = min(workers, len(missing_rows))
+    if worker_count <= 0:
+        return
+
+    queue: asyncio.Queue[dict[str, str] | None] = asyncio.Queue()
     for row in missing_rows:
         queue.put_nowait(row)
+    for _ in range(worker_count):
+        queue.put_nowait(None)
 
     write_lock = asyncio.Lock()
 
     async def worker() -> None:
         while True:
-            try:
-                row = queue.get_nowait()
-            except asyncio.QueueEmpty:
+            row = await queue.get()
+            if row is None:
                 return
 
-            qid = row["id"]
-            progress.set_postfix_str(f"id={qid}", refresh=False)
-            question = clean_question(row["question"])
-            try:
-                answer, _ = await answer_question_async(
-                    question,
-                    session_id=f"submission_{qid}",
-                    contexts=contexts_by_id[qid],
-                )
-            except Exception as exc:
-                raise RuntimeError(
-                    f"failed to generate id={qid}; saved progress is in {output_path}"
-                ) from exc
+            await _generate_submission_row(
+                row,
+                contexts_by_id,
+                question_path,
+                output_path,
+                fieldnames,
+                rows_by_id,
+                write_lock,
+                progress,
+            )
 
-            answer = answer.strip()
-            if not answer:
-                raise RuntimeError(
-                    f"empty ret for id={qid}; saved progress is in {output_path}"
-                )
-
-            async with write_lock:
-                rows_by_id[qid] = answer
-                write_submission(question_path, output_path, fieldnames, rows_by_id)
-                progress.update(1)
-            queue.task_done()
-
-    tasks = [asyncio.create_task(worker()) for _ in range(min(workers, len(missing_rows)))]
+    tasks = [asyncio.create_task(worker()) for _ in range(worker_count)]
     try:
         await asyncio.gather(*tasks)
     except Exception:
@@ -293,6 +283,42 @@ async def _generate_missing_answers(
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         raise
+
+
+async def _generate_submission_row(
+    row: dict[str, str],
+    contexts_by_id: dict[str, str],
+    question_path: Path,
+    output_path: Path,
+    fieldnames: list[str],
+    rows_by_id: dict[str, str],
+    write_lock: asyncio.Lock,
+    progress: tqdm,
+) -> None:
+    qid = row["id"]
+    progress.set_postfix_str(f"id={qid}", refresh=False)
+    question = clean_question(row["question"])
+    try:
+        answer, _ = await answer_question_async(
+            question,
+            session_id=f"submission_{qid}",
+            contexts=contexts_by_id[qid],
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"failed to generate id={qid}; saved progress is in {output_path}"
+        ) from exc
+
+    answer = answer.strip()
+    if not answer:
+        raise RuntimeError(
+            f"empty ret for id={qid}; saved progress is in {output_path}"
+        )
+
+    async with write_lock:
+        rows_by_id[qid] = answer
+        write_submission(question_path, output_path, fieldnames, rows_by_id)
+        progress.update(1)
 
 
 def write_submission(

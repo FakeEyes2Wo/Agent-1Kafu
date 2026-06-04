@@ -2,11 +2,14 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from kefu_agent.rag import (
     Chunk,
     HashEmbeddings,
     SentenceTransformerEmbeddings,
     build_index,
+    cached_manual_chunks,
     cosine,
     format_answer_with_image_list,
     format_contexts,
@@ -14,6 +17,8 @@ from kefu_agent.rag import (
     retrieve,
     visual_retrieve,
     _image_context_text,
+    _candidate_limit,
+    _fine_rank_nodes,
     _metadata_image_ids,
     _node_to_chunk,
     _rank_chunks,
@@ -174,11 +179,19 @@ def test_retrieve_returns_chunks_from_llamaindex_nodes(monkeypatch, tmp_path):
         "kefu_agent.rag.retrieval._load_llama_index",
         lambda persist_dir, embedding_model, model_dir: FakeIndex(),
     )
+    monkeypatch.setattr(
+        "kefu_agent.rag.retrieval._lexical_retrieve",
+        lambda query, manual_language, top_k: [],
+    )
+    monkeypatch.setattr(
+        "kefu_agent.rag.retrieval._visual_retrieve",
+        lambda query, manual_language, top_k: [],
+    )
 
     chunks = retrieve("问题", top_k=1)
 
     assert calls["query"] == "问题"
-    assert calls["similarity_top_k"] == 1
+    assert calls["similarity_top_k"] == 20
     assert calls["filters"].filters[0].key == "manual_language"
     assert calls["filters"].filters[0].value == "zh"
     assert chunks == [
@@ -260,6 +273,51 @@ def test_retrieve_merges_lexical_candidates_with_vector_results(monkeypatch, tmp
     assert [chunk.id for chunk in chunks] == ["vector", "lexical"]
 
 
+def test_retrieve_uses_expanded_candidate_pool(monkeypatch, tmp_path):
+    settings = _rag_settings(tmp_path, retrieval_top_k=12, top_k=2)
+    settings.llamaindex_dir.mkdir(parents=True)
+    (settings.llamaindex_dir / "docstore.json").write_text("{}", encoding="utf-8")
+    settings.vectorstore_dir.mkdir(parents=True)
+    _write_index_metadata(settings, [])
+    calls = {}
+
+    class FakeRetriever:
+        def retrieve(self, query):
+            return []
+
+    class FakeIndex:
+        def as_retriever(self, similarity_top_k, filters=None):
+            calls["similarity_top_k"] = similarity_top_k
+            return FakeRetriever()
+
+    monkeypatch.setattr("kefu_agent.rag.retrieval.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "kefu_agent.rag.retrieval._load_llama_index",
+        lambda persist_dir, embedding_model, model_dir: FakeIndex(),
+    )
+    monkeypatch.setattr(
+        "kefu_agent.rag.retrieval._lexical_retrieve",
+        lambda query, manual_language, top_k: [],
+    )
+    monkeypatch.setattr(
+        "kefu_agent.rag.retrieval._visual_retrieve",
+        lambda query, manual_language, top_k: [],
+    )
+
+    assert retrieve("question", top_k=2) == []
+    assert calls["similarity_top_k"] == 12
+    assert _candidate_limit(settings, 2) == 12
+
+
+def test_fine_rank_prefers_more_relevant_candidate_after_fusion():
+    weak = Chunk("weak", "manual", "title", "generic text", [], [])
+    strong = Chunk("strong", "manual", "title", "replace watch band size", [], [])
+
+    ranked = _fine_rank_nodes("replace watch band", [weak, strong], top_n=2)
+
+    assert [chunk.id for chunk in ranked] == ["strong", "weak"]
+
+
 def test_rerank_orders_nodes(monkeypatch, tmp_path):
     settings = _rag_settings(tmp_path, rerank_model="reranker")
 
@@ -305,9 +363,10 @@ def test_visual_retrieve_builds_single_image_context(monkeypatch, tmp_path):
     ]
     monkeypatch.setattr("kefu_agent.rag.visual.get_settings", lambda: settings)
     monkeypatch.setattr(
-        "kefu_agent.rag.visual.load_manual_chunks",
+        "kefu_agent.rag.manuals.load_manual_chunks",
         lambda: iter(manual_chunks),
     )
+    cached_manual_chunks.cache_clear()
     _visual_chunks.cache_clear()
 
     chunks = visual_retrieve("glass cleaning", "en", top_k=2)
@@ -351,6 +410,7 @@ def test_format_contexts_keeps_pic_placeholders_and_lists_image_ids():
     text = format_contexts(chunks)
 
     assert '可用图片：["img_1", "img_2"]' in text
+    assert '配图顺序：["img_1", "img_2"]' in text
     assert "first step <PIC>img_1</PIC>" in text
     assert "second step <PIC>img_2</PIC>" in text
     assert "third step <PIC>" in text
@@ -405,6 +465,17 @@ def test_format_answer_with_image_list_ignores_model_image_ids(monkeypatch):
     )
 
     assert answer == '第一步 <PIC> 第二步 <PIC>,["ctx_1", "ctx_2"]'
+
+
+def test_format_answer_with_image_list_removes_plain_context_image_ids(monkeypatch):
+    monkeypatch.setattr("kefu_agent.rag.images._valid_image_ids", lambda image_dir: frozenset())
+
+    answer = format_answer_with_image_list(
+        "电池组充电中 <PIC> drill10_04，已充满 <PIC> drill10_05",
+        '证据 <PIC>drill10_04</PIC> 已充满 <PIC>drill10_05</PIC>\n可用图片：["drill10_04", "drill10_05"]',
+    )
+
+    assert answer == '电池组充电中 <PIC>，已充满 <PIC>,["drill10_04", "drill10_05"]'
 
 
 def test_format_answer_with_image_list_removes_pics_without_context_images(monkeypatch):
@@ -609,10 +680,8 @@ def test_sentence_transformer_does_not_fallback_to_cache_repo_parent(
 
     embeddings = SentenceTransformerEmbeddings(str(cache_dir), model_dir=tmp_path)
 
-    try:
+    with pytest.raises(RuntimeError):
         embeddings.embed_query("query")
-    except RuntimeError:
-        pass
 
     assert calls == ["Qwen/Qwen3-Embedding-0.6B"]
 
