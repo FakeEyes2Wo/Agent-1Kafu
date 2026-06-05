@@ -287,6 +287,7 @@ def _answer_cache_signature(settings) -> dict:
     return {
         "version": ANSWER_CACHE_VERSION,
         "chat_model": getattr(settings, "chat_model", ""),
+        "chat_enable_thinking": bool(getattr(settings, "chat_enable_thinking", False)),
         "vision_model": getattr(settings, "vision_model", ""),
         "chat_max_tokens": CHAT_MAX_TOKENS,
         "prompt_hash": _stable_hash(prompt_fingerprint),

@@ -1,4 +1,5 @@
 import asyncio
+import re
 import time
 import uuid
 from typing import Any, TypedDict
@@ -282,7 +283,7 @@ def generate_answer(state: AgentState) -> AgentState:
     if not answer:
         answer = _check_and_rewrite_answer(state, "")
     if not answer:
-        raise RuntimeError("chat model returned an empty answer")
+        answer = _fallback_answer_from_contexts(state)
 
     state["draft_answer"] = str(answer)
     state["answer"] = answer
@@ -318,6 +319,48 @@ def _check_and_rewrite_answer(state: AgentState, answer: str) -> str:
     return answer
 
 
+def _fallback_answer_from_contexts(state: AgentState) -> str:
+    snippet = _first_context_snippet(state.get("contexts", ""))
+    if snippet:
+        if _looks_english(state["question"]):
+            return f"According to the available manual information, {snippet}"
+        return f"根据说明，{snippet}"
+    if _looks_english(state["question"]):
+        return "The available evidence is not enough to confirm the exact step. Please provide the product model, symptoms, or image details for further checking."
+    return "目前资料不足以确认具体处理步骤，请补充商品型号、故障现象或图片细节后再核实处理。"
+
+
+def _first_context_snippet(contexts: str, max_chars: int = 160) -> str:
+    for block in contexts.split("\n\n"):
+        lines = []
+        for line in block.splitlines():
+            line = line.strip()
+            if not line or re.match(r"^\[\d+\]\s", line):
+                continue
+            if re.match(r"^(可用图片|image_ids|images)[:：]", line, flags=re.I):
+                continue
+            lines.append(line)
+        text = " ".join(lines)
+        text = re.sub(r"<\s*PIC\s*>\s*([^<>]+?)\s*<\s*/\s*PIC\s*>", "<PIC>", text, flags=re.I)
+        text = re.sub(r"(?:可用图片|image_ids|images)[:：]\s*\[[^\[\]]*\]", "", text, flags=re.I)
+        text = re.sub(r"\s+", " ", text).strip()
+        if text:
+            return text[:max_chars].rstrip()
+    return ""
+
+
+def _looks_english(question: str) -> bool:
+    return bool(re.search(r"[A-Za-z]", question)) and not re.search(r"[\u4e00-\u9fff]", question)
+
+
+def _chat_extra_body(settings: Any) -> dict[str, Any] | None:
+    source = getattr(settings, "model_api_key_source", "")
+    base_url = str(getattr(settings, "model_base_url", "")).lower()
+    if source not in {"bailian", "dashscope"} and "dashscope" not in base_url:
+        return None
+    return {"enable_thinking": bool(getattr(settings, "chat_enable_thinking", False))}
+
+
 def response_payload(answer: str, session_id: str) -> dict:
     return {
         "code": 0,
@@ -342,6 +385,7 @@ def _invoke_chat(prompt: str, error_context: str) -> str:
             max_tokens=CHAT_MAX_TOKENS,
             timeout=settings.model_timeout_seconds,
             max_retries=1,
+            extra_body=_chat_extra_body(settings),
         )
         message = model.invoke([HumanMessage(content=prompt)])
         answer = _OUTPUT_PARSER.invoke(message).strip()

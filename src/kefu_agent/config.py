@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str = ""
     chat_model: str = "qwen3.7-plus-2026-05-26"
+    chat_enable_thinking: bool = False
     vision_model: str = "qwen3.7-plus-2026-05-26"
     vision_model_url: str = ""
     embedding_model: str = "text-embedding-v4"

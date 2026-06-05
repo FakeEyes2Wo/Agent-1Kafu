@@ -35,12 +35,18 @@ BAILIAN_API_KEY=your-dashscope-api-key
 DASHSCOPE_API_KEY=
 BAILIAN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 CHAT_MODEL=qwen3.7-plus-2026-05-26
+CHAT_ENABLE_THINKING=false
 VISION_MODEL=qwen3.7-plus-2026-05-26
 EMBEDDING_BACKEND=openai
 EMBEDDING_MODEL=text-embedding-v4
 RAG_BACKEND=hybrid
 RERANK_ENABLED=false
 ```
+
+`qwen3.7-plus` supports thinking mode through Bailian/DashScope. The default
+keeps `CHAT_ENABLE_THINKING=false` for faster, more predictable batch
+submission generation. Set it to `true` when you want higher-reasoning answers
+and can accept extra tokens and latency.
 
 Index building always creates a local BM25/sparse index over manual chunks.
 If `BAILIAN_API_KEY` or `DASHSCOPE_API_KEY` is set, dense vectors are added

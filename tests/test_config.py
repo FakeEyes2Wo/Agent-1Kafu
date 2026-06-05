@@ -31,6 +31,7 @@ def test_defaults_to_bailian_api_with_local_hybrid_rag():
     settings = Settings(_env_file=None)
 
     assert settings.chat_model == "qwen3.7-plus-2026-05-26"
+    assert not settings.chat_enable_thinking
     assert settings.vision_model == "qwen3.7-plus-2026-05-26"
     assert settings.embedding_backend == "openai"
     assert settings.embedding_model == "text-embedding-v4"

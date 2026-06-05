@@ -203,6 +203,35 @@ def test_generate_answer_uses_reflection_when_initial_answer_is_empty(monkeypatc
     assert calls == ["generate answer", "check and rewrite answer"]
 
 
+def test_generate_answer_uses_context_fallback_when_model_returns_empty(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(graph, "_require_chat_model", lambda: None)
+
+    def fake_invoke(prompt, error_context):
+        calls.append(error_context)
+        return ""
+
+    monkeypatch.setattr(graph, "_invoke_chat", fake_invoke)
+
+    state = graph.generate_answer(
+        {
+            "question": "如何检查电池？",
+            "image_summary": graph.NO_IMAGE_SUMMARY,
+            "contexts": (
+                "[1] 来源：manual / title type=text\n"
+                "先按住电源键 <PIC>img_1</PIC>，再观察指示灯。\n"
+                "可用图片：[\"img_1\"]"
+            ),
+        }
+    )
+
+    assert state["answer"] == "根据说明，先按住电源键 <PIC>，再观察指示灯。"
+    assert state["draft_answer"] == state["answer"]
+    assert "img_1" not in state["answer"]
+    assert calls == ["generate answer", "check and rewrite answer"]
+
+
 def test_generate_answer_prompt_has_language_rule_and_no_history(monkeypatch):
     prompts = []
 
@@ -270,9 +299,36 @@ def test_invoke_chat_uses_langchain_v1_init_chat_model(monkeypatch):
         "max_tokens": graph.CHAT_MAX_TOKENS,
         "timeout": 12,
         "max_retries": 1,
+        "extra_body": None,
     }
     assert calls["messages"][0].content == "prompt text"
     assert not hasattr(graph, "_chat_llm")
+
+
+def test_invoke_chat_can_enable_bailian_thinking(monkeypatch):
+    calls = {}
+
+    class Settings:
+        chat_model = "qwen3.7-plus-2026-05-26"
+        model_api_key = "test-key"
+        model_api_key_source = "bailian"
+        model_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        model_timeout_seconds = 12
+        chat_enable_thinking = True
+
+    class FakeModel:
+        def invoke(self, messages):
+            return AIMessage(content=" model answer ")
+
+    def fake_init_chat_model(**kwargs):
+        calls["kwargs"] = kwargs
+        return FakeModel()
+
+    monkeypatch.setattr(graph, "get_settings", lambda: Settings())
+    monkeypatch.setattr(graph, "init_chat_model", fake_init_chat_model)
+
+    assert graph._invoke_chat("prompt text", "generate answer") == "model answer"
+    assert calls["kwargs"]["extra_body"] == {"enable_thinking": True}
 
 
 def test_check_answer_formats_pic_list_from_contexts(monkeypatch):
