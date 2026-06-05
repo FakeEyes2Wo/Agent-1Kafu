@@ -49,7 +49,7 @@ POST /chat
 - 如果要 rerank，可设置 `RERANK_ENABLED=true`、`RERANK_BACKEND=bailian`、`RERANK_MODEL=qwen3-vl-rerank`，走百炼排序模型 API。
 - 如果要降低视觉预处理成本，可离线批量生成图片 caption/OCR 缓存。
 - 如果要做消融实验，可比较 `BM25 only`、`BM25 + text-embedding-v4`、`BM25 + dense + visual`。
-- 如果 embedding 请求量过大，优先把 `EMBEDDING_BATCH_SIZE` 从默认 64 下调。
+- 百炼 `text-embedding-v4` 单次最多 10 条文本，保持 `EMBEDDING_BATCH_SIZE=10`。
 
 ## GPU / 服务器迁移清单
 

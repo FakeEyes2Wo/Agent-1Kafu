@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     embedding_backend: str = "openai"
     embedding_query_prompt_name: str = ""
     embedding_model_dir: Path = Field(default=Path("./storage/models"))
-    embedding_batch_size: int = 64
+    embedding_batch_size: int = 10
 
     app_host: str = "0.0.0.0"
     app_port: int = 8000

@@ -36,6 +36,7 @@ def test_defaults_to_bailian_api_with_local_hybrid_rag():
     assert settings.embedding_model == "text-embedding-v4"
     assert settings.embedding_query_prompt_name == ""
     assert settings.embedding_model_dir == (PROJECT_ROOT / "storage" / "models").resolve()
+    assert settings.embedding_batch_size == 10
     assert settings.rag_backend == "hybrid"
     assert settings.retrieval_top_k == 20
     assert not settings.rerank_enabled

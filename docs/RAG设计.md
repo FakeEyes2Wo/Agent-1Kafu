@@ -18,7 +18,7 @@ BAILIAN_API_KEY=your-dashscope-api-key
 DASHSCOPE_API_KEY=
 EMBEDDING_BACKEND=openai
 EMBEDDING_MODEL=text-embedding-v4
-EMBEDDING_BATCH_SIZE=64
+EMBEDDING_BATCH_SIZE=10
 ```
 
 实现位于 `src/kefu_agent/rag/`：

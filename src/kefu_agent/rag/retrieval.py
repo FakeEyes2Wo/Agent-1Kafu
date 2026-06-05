@@ -134,9 +134,19 @@ def _embed_documents_if_enabled(texts: list[str]) -> list[list[float]]:
         return [[] for _ in texts]
     embeddings = get_embeddings()
     vectors: list[list[float]] = []
-    for start in range(0, len(texts), settings.embedding_batch_size):
-        vectors.extend(embeddings.embed_documents(texts[start : start + settings.embedding_batch_size]))
+    batch_size = _embedding_batch_size(settings)
+    for start in range(0, len(texts), batch_size):
+        vectors.extend(embeddings.embed_documents(texts[start : start + batch_size]))
     return vectors
+
+
+def _embedding_batch_size(settings: Settings) -> int:
+    configured = max(1, int(getattr(settings, "embedding_batch_size", 10)))
+    backend = settings.embedding_backend.strip().lower()
+    base_url = settings.model_base_url.strip().lower()
+    if backend in {"bailian", "dashscope"} or "dashscope.aliyuncs.com" in base_url:
+        return min(configured, 10)
+    return configured
 
 
 def _dense_retrieve(query: str, manual_language: str, top_k: int) -> list[Chunk]:

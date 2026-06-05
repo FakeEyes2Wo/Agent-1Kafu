@@ -105,6 +105,19 @@ def test_api_embeddings_disable_langchain_tokenized_payload(monkeypatch):
     embeddings_mod._get_embeddings.cache_clear()
 
 
+def test_dashscope_embedding_batch_size_is_capped(tmp_path):
+    import kefu_agent.rag.retrieval as retrieval_mod
+
+    settings = _rag_settings(
+        tmp_path,
+        embedding_backend="openai",
+        embedding_batch_size=64,
+        model_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    )
+
+    assert retrieval_mod._embedding_batch_size(settings) == 10
+
+
 def test_parse_manual_json_shape(tmp_path):
     path = tmp_path / "manual.txt"
     path.write_text('["# Title\\nBody<PIC>", ["img_1"]]', encoding="utf-8")

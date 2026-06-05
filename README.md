@@ -48,8 +48,8 @@ with `text-embedding-v4`; without an API key the code still builds a BM25-only
 index for local checks.
 If you change retrieval or embedding settings, index metadata no longer matches
 and the index is rebuilt automatically.
-Use `EMBEDDING_BATCH_SIZE` to reduce Bailian embedding batch size if the server
-reports request-size limits.
+Keep `EMBEDDING_BATCH_SIZE=10` for Bailian `text-embedding-v4`; the service
+rejects larger embedding batches.
 If server-side ablation shows reranking helps, enable Bailian rerank with
 `RERANK_ENABLED=true`, `RERANK_BACKEND=bailian`, and
 `RERANK_MODEL=qwen3-vl-rerank`.
