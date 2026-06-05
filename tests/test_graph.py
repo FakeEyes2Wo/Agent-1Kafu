@@ -195,8 +195,8 @@ def test_invoke_chat_uses_langchain_v1_init_chat_model(monkeypatch):
 
     class Settings:
         chat_model = "chat-model"
-        openai_api_key = "test-key"
-        openai_base_url = "https://example.test/v1"
+        model_api_key = "test-key"
+        model_base_url = "https://example.test/v1"
         model_timeout_seconds = 12
 
     class FakeModel:

@@ -189,7 +189,7 @@ def summarize_images(state: AgentState) -> AgentState:
         model = init_chat_model(
             model=settings.vision_model,
             model_provider="openai",
-            api_key=settings.openai_api_key,
+            api_key=settings.model_api_key,
             base_url=settings.vision_base_url,
             temperature=0,
             timeout=settings.model_timeout_seconds,
@@ -288,8 +288,8 @@ def _invoke_chat(prompt: str, error_context: str) -> str:
         model = init_chat_model(
             model=settings.chat_model,
             model_provider="openai",
-            api_key=settings.openai_api_key,
-            base_url=settings.openai_base_url,
+            api_key=settings.model_api_key,
+            base_url=settings.model_base_url,
             temperature=0.2,
             max_tokens=CHAT_MAX_TOKENS,
             timeout=settings.model_timeout_seconds,
@@ -303,5 +303,6 @@ def _invoke_chat(prompt: str, error_context: str) -> str:
 def _require_chat_model() -> None:
     if not get_settings().has_openai_key:
         raise RuntimeError(
-            "OPENAI_API_KEY must be configured so the chat model can generate answers."
+            "BAILIAN_API_KEY, DASHSCOPE_API_KEY, or OPENAI_API_KEY must be configured "
+            "so the chat model can generate answers."
         )

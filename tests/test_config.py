@@ -11,6 +11,12 @@ def test_vision_base_url_falls_back_to_openai_base_url():
     assert settings.vision_base_url == "https://chat.example/v1"
 
 
+def test_vision_base_url_defaults_to_bailian_base_url():
+    settings = Settings(_env_file=None)
+
+    assert settings.vision_base_url == settings.bailian_base_url
+
+
 def test_vision_base_url_uses_dedicated_url():
     settings = Settings(
         _env_file=None,
@@ -21,20 +27,49 @@ def test_vision_base_url_uses_dedicated_url():
     assert settings.vision_base_url == "https://vision.example/v1"
 
 
-def test_embedding_backend_defaults_to_sentence_transformers_qwen():
+def test_defaults_to_bailian_api_with_local_hybrid_rag():
     settings = Settings(_env_file=None)
 
-    assert settings.embedding_backend == "sentence_transformers"
-    assert settings.embedding_model == "Qwen/Qwen3-Embedding-0.6B"
-    assert settings.embedding_query_prompt_name == "query"
+    assert settings.chat_model == "qwen3.7-plus-2026-05-26"
+    assert settings.vision_model == "qwen3.7-plus-2026-05-26"
+    assert settings.embedding_backend == "openai"
+    assert settings.embedding_model == "text-embedding-v4"
+    assert settings.embedding_query_prompt_name == ""
     assert settings.embedding_model_dir == (PROJECT_ROOT / "storage" / "models").resolve()
-    assert settings.rag_backend == "llamaindex"
-    assert settings.llamaindex_dir == (PROJECT_ROOT / "storage" / "llamaindex").resolve()
+    assert settings.rag_backend == "hybrid"
     assert settings.retrieval_top_k == 20
     assert not settings.rerank_enabled
+    assert settings.rerank_backend == "none"
     assert settings.rerank_top_n == 8
-    assert settings.use_sentence_transformer_embeddings
-    assert not settings.use_openai_embeddings
+    assert settings.use_openai_embeddings
+    assert not settings.use_sentence_transformer_embeddings
+
+
+def test_placeholder_bailian_key_is_not_treated_as_configured():
+    settings = Settings(_env_file=None, bailian_api_key="your-dashscope-api-key")
+
+    assert not settings.has_model_api_key
+    assert not settings.has_openai_key
+
+
+def test_dashscope_key_is_used_when_bailian_placeholder_is_present():
+    settings = Settings(
+        _env_file=None,
+        bailian_api_key="your-dashscope-api-key",
+        dashscope_api_key="sk-dashscope",
+    )
+
+    assert settings.model_api_key == "sk-dashscope"
+    assert settings.model_api_key_source == "dashscope"
+    assert settings.has_model_api_key
+
+
+def test_openai_key_without_base_url_uses_openai_default_base_url():
+    settings = Settings(_env_file=None, openai_api_key="sk-openai")
+
+    assert settings.model_api_key == "sk-openai"
+    assert settings.model_api_key_source == "openai"
+    assert settings.model_base_url == "https://api.openai.com/v1"
 
 
 def test_embedding_backend_can_enable_openai():

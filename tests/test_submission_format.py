@@ -128,10 +128,12 @@ def test_prepare_context_cache_reuses_existing_contexts(monkeypatch, tmp_path):
         embedding_backend = "hash"
         embedding_model = "hash"
         embedding_query_prompt_name = ""
+        embedding_batch_size = 64
         top_k = 2
-        rag_backend = "llamaindex"
+        rag_backend = "hybrid"
         retrieval_top_k = 20
         rerank_enabled = False
+        rerank_backend = "none"
         rerank_model = "BAAI/bge-reranker-v2-m3"
         rerank_top_n = 8
 
@@ -160,10 +162,12 @@ def test_context_cache_signature_includes_rag_fields():
         embedding_backend = "HASH"
         embedding_model = "hash"
         embedding_query_prompt_name = ""
+        embedding_batch_size = 64
         top_k = 2
-        rag_backend = "llamaindex"
+        rag_backend = "hybrid"
         retrieval_top_k = 20
         rerank_enabled = True
+        rerank_backend = "local"
         rerank_model = "reranker"
         rerank_top_n = 6
         visual_retriever = "lexical"
@@ -177,19 +181,21 @@ def test_context_cache_signature_includes_rag_fields():
         "embedding_backend": "hash",
         "embedding_model": "hash",
         "embedding_query_prompt_name": "",
+        "embedding_batch_size": 64,
         "top_k": 2,
-        "rag_backend": "llamaindex",
+        "rag_backend": "hybrid",
         "retrieval_top_k": 20,
         "rerank_enabled": True,
+        "rerank_backend": "local",
         "rerank_model": "reranker",
         "rerank_top_n": 6,
-        "manual_language_filter_version": "1",
-        "manual_pic_tag_version": "1",
-        "hybrid_search_version": "1",
-        "visual_retriever_version": "1",
+        "manual_language_filter_version": "2",
+        "manual_pic_tag_version": "2",
+        "hybrid_search_version": "3",
+        "visual_retriever_version": "2",
         "visual_retriever": "lexical",
         "visual_top_k": 5,
-        "rag_context_format_version": "6",
+        "rag_context_format_version": "4",
     }
 
 

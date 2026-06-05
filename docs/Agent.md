@@ -1,5 +1,10 @@
 # Agent 设计
 
+> 当前默认模型链路为百炼 OpenAI-compatible API：`CHAT_MODEL` 与
+> `VISION_MODEL` 默认使用 `qwen3.7-plus-2026-05-26`，`VISION_MODEL_URL`
+> 未设置时回退到 `BAILIAN_BASE_URL`。检索链路默认调用本地 hybrid RAG，
+> BM25/sparse 在本地完成，dense embedding 可走百炼 `text-embedding-v4`。
+
 核心流程位于 `src/kefu_agent/graph.py`，由 LangGraph 编排。
 
 ## State
@@ -32,12 +37,12 @@ START
 `summarize_images`
 
 - 有图片时调用 `VISION_MODEL` 提取订单、物流、故障或商品信息。
-- vision 接口地址由 `VISION_MODEL_URL` 指定，未配置时回退到 `OPENAI_BASE_URL`。
+- vision 接口地址由 `VISION_MODEL_URL` 指定，未配置时回退到 `BAILIAN_BASE_URL` / `OPENAI_BASE_URL`。
 
 `retrieve_context`
 
-- 使用当前 embedding 后端检索 RAG 证据。
-- 默认 embedding 是 Hugging Face `Qwen/Qwen3-Embedding-0.6B`。
+- 使用本地 hybrid RAG 检索证据：BM25/sparse 必跑，dense embedding 仅在配置 API key 后叠加。
+- 默认 dense embedding 是百炼 `text-embedding-v4`；不再要求本地下载 Hugging Face embedding 权重。
 
 `generate_answer`
 

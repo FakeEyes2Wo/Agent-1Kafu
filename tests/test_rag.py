@@ -32,7 +32,7 @@ from kefu_agent.rag import (
 def _rag_settings(tmp_path: Path, **overrides):
     vectorstore_dir = tmp_path / "vectorstore"
     settings = SimpleNamespace(
-        rag_backend="llamaindex",
+        rag_backend="hybrid",
         vectorstore_dir=vectorstore_dir,
         llamaindex_dir=tmp_path / "llamaindex",
         index_path=vectorstore_dir / "index.jsonl",
@@ -49,8 +49,14 @@ def _rag_settings(tmp_path: Path, **overrides):
         visual_top_k=8,
         top_k=8,
         manual_dir=tmp_path / "manuals",
+        image_dir=tmp_path / "images",
         chunk_size=700,
         chunk_overlap=120,
+        embedding_batch_size=64,
+        has_model_api_key=False,
+        has_openai_key=False,
+        model_api_key="",
+        model_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
     )
     for name, value in overrides.items():
         setattr(settings, name, value)
@@ -98,8 +104,72 @@ def test_query_language_uses_english_only_for_plain_english_questions():
     assert filters.filters[0].value == "en"
 
 
+def test_build_index_creates_bm25_only_index_without_api_key(monkeypatch, tmp_path):
+    settings = _rag_settings(
+        tmp_path,
+        embedding_backend="openai",
+        embedding_model="text-embedding-v4",
+        has_openai_key=False,
+    )
+    settings.manual_dir.mkdir(parents=True)
+    (settings.manual_dir / "English Manual.txt").write_text(
+        '["# Charging\\nDCB107 light means charging<PIC>", ["drill10_04"]]',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("kefu_agent.rag.retrieval.get_settings", lambda: settings)
+    monkeypatch.setattr("kefu_agent.rag.parsing.get_settings", lambda: settings)
+    monkeypatch.setattr("kefu_agent.rag.visual.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "kefu_agent.rag.retrieval.get_embeddings",
+        lambda: (_ for _ in ()).throw(AssertionError("API embeddings should be skipped")),
+    )
+
+    assert build_index() == 1
+    assert settings.index_path.exists()
+    indexed = settings.index_path.read_text(encoding="utf-8")
+    metadata = settings.index_meta_path.read_text(encoding="utf-8")
+    assert '"vector": []' in indexed
+    assert '"dense_vectors_enabled": "False"' in metadata
+
+    chunks = retrieve("DCB107 light", top_k=1)
+    assert chunks
+    assert chunks[0].manual == "English Manual"
+    assert chunks[0].image_ids == ["drill10_04"]
+
+
+def test_mixed_chinese_english_query_searches_both_manual_languages(monkeypatch, tmp_path):
+    settings = _rag_settings(tmp_path, embedding_backend="none", visual_retriever="off")
+    settings.vectorstore_dir.mkdir(parents=True)
+    settings.index_path.write_text("", encoding="utf-8")
+    _write_index_metadata(settings, [])
+    languages = []
+
+    def fake_lexical(query, manual_language, top_k):
+        languages.append(manual_language)
+        return [
+            Chunk(
+                manual_language,
+                f"{manual_language}-manual",
+                "title",
+                f"{manual_language} text",
+                [],
+                [],
+                manual_language=manual_language,
+            )
+        ]
+
+    monkeypatch.setattr("kefu_agent.rag.retrieval.get_settings", lambda: settings)
+    monkeypatch.setattr("kefu_agent.rag.retrieval._lexical_retrieve", fake_lexical)
+
+    chunks = retrieve("DCB107 过热 light", top_k=2)
+
+    assert languages == ["zh", "en"]
+    assert [chunk.manual_language for chunk in chunks] == ["zh", "en"]
+
+
 def test_build_index_uses_llamaindex_backend(monkeypatch, tmp_path):
-    settings = _rag_settings(tmp_path)
+    settings = _rag_settings(tmp_path, rag_backend="llamaindex")
     calls = {}
 
     def persist(persist_dir):
@@ -111,9 +181,9 @@ def test_build_index_uses_llamaindex_backend(monkeypatch, tmp_path):
             calls["embed_model"] = embed_model
             self.storage_context = SimpleNamespace(persist=persist)
 
-    import llama_index.core
-
-    monkeypatch.setattr(llama_index.core, "VectorStoreIndex", FakeVectorStoreIndex)
+    fake_llama_index_core = SimpleNamespace(VectorStoreIndex=FakeVectorStoreIndex)
+    monkeypatch.setitem(sys.modules, "llama_index", SimpleNamespace(core=fake_llama_index_core))
+    monkeypatch.setitem(sys.modules, "llama_index.core", fake_llama_index_core)
     monkeypatch.setattr("kefu_agent.rag.retrieval.get_settings", lambda: settings)
     monkeypatch.setattr(
         "kefu_agent.rag.retrieval.load_manual_chunks",
@@ -139,7 +209,7 @@ def test_build_index_uses_llamaindex_backend(monkeypatch, tmp_path):
 
 
 def test_retrieve_returns_chunks_from_llamaindex_nodes(monkeypatch, tmp_path):
-    settings = _rag_settings(tmp_path)
+    settings = _rag_settings(tmp_path, rag_backend="llamaindex")
     settings.llamaindex_dir.mkdir(parents=True)
     (settings.llamaindex_dir / "docstore.json").write_text("{}", encoding="utf-8")
     settings.vectorstore_dir.mkdir(parents=True)
@@ -187,7 +257,7 @@ def test_retrieve_returns_chunks_from_llamaindex_nodes(monkeypatch, tmp_path):
 
 
 def test_retrieve_filters_llamaindex_to_english_manuals(monkeypatch, tmp_path):
-    settings = _rag_settings(tmp_path)
+    settings = _rag_settings(tmp_path, rag_backend="llamaindex")
     settings.llamaindex_dir.mkdir(parents=True)
     (settings.llamaindex_dir / "docstore.json").write_text("{}", encoding="utf-8")
     settings.vectorstore_dir.mkdir(parents=True)
@@ -224,7 +294,7 @@ def test_retrieve_filters_llamaindex_to_english_manuals(monkeypatch, tmp_path):
 
 
 def test_retrieve_merges_lexical_candidates_with_vector_results(monkeypatch, tmp_path):
-    settings = _rag_settings(tmp_path)
+    settings = _rag_settings(tmp_path, rag_backend="llamaindex")
     settings.llamaindex_dir.mkdir(parents=True)
     (settings.llamaindex_dir / "docstore.json").write_text("{}", encoding="utf-8")
     settings.vectorstore_dir.mkdir(parents=True)
@@ -261,7 +331,7 @@ def test_retrieve_merges_lexical_candidates_with_vector_results(monkeypatch, tmp
 
 
 def test_rerank_orders_nodes(monkeypatch, tmp_path):
-    settings = _rag_settings(tmp_path, rerank_model="reranker")
+    settings = _rag_settings(tmp_path, rerank_backend="local", rerank_model="reranker")
 
     class FakeReranker:
         def predict(self, pairs):
@@ -274,6 +344,36 @@ def test_rerank_orders_nodes(monkeypatch, tmp_path):
     monkeypatch.setattr("kefu_agent.rag.retrieval._get_reranker", lambda *args: FakeReranker())
 
     assert _rerank_nodes("query", [low, high], top_n=2) == [high, low]
+
+
+def test_bailian_rerank_uses_api_result_indices(monkeypatch, tmp_path):
+    import kefu_agent.rag.retrieval as retrieval_mod
+
+    settings = _rag_settings(
+        tmp_path,
+        rerank_backend="bailian",
+        rerank_model="qwen3-vl-rerank",
+        has_openai_key=True,
+        model_api_key="sk-test",
+    )
+    calls = {}
+    low = SimpleNamespace(text="low")
+    high = SimpleNamespace(text="high")
+
+    def fake_post_json(url, payload, api_key, timeout):
+        calls["url"] = url
+        calls["payload"] = payload
+        calls["api_key"] = api_key
+        return {"output": {"results": [{"index": 1, "relevance_score": 0.9}]}}
+
+    monkeypatch.setattr("kefu_agent.rag.retrieval.get_settings", lambda: settings)
+    monkeypatch.setattr(retrieval_mod, "_post_json", fake_post_json)
+
+    assert _rerank_nodes("query", [low, high], top_n=1) == [high]
+    assert calls["api_key"] == "sk-test"
+    assert calls["payload"]["model"] == "qwen3-vl-rerank"
+    assert calls["payload"]["input"]["query"] == {"text": "query"}
+    assert calls["payload"]["input"]["documents"] == [{"text": "low"}, {"text": "high"}]
 
 
 def test_reciprocal_rank_fusion_promotes_overlap():
