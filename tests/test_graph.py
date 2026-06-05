@@ -274,6 +274,7 @@ def test_invoke_chat_uses_langchain_v1_init_chat_model(monkeypatch):
         model_api_key = "test-key"
         model_base_url = "https://example.test/v1"
         model_timeout_seconds = 12
+        chat_max_tokens = 900
 
     class FakeModel:
         def invoke(self, messages):
@@ -296,7 +297,7 @@ def test_invoke_chat_uses_langchain_v1_init_chat_model(monkeypatch):
         "api_key": "test-key",
         "base_url": "https://example.test/v1",
         "temperature": 0.2,
-        "max_tokens": graph.CHAT_MAX_TOKENS,
+        "max_tokens": 900,
         "timeout": 12,
         "max_retries": 1,
         "extra_body": None,
@@ -315,6 +316,8 @@ def test_invoke_chat_can_enable_bailian_thinking(monkeypatch):
         model_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
         model_timeout_seconds = 12
         chat_enable_thinking = True
+        chat_max_tokens = 1800
+        chat_thinking_budget = 1024
 
     class FakeModel:
         def invoke(self, messages):
@@ -328,7 +331,11 @@ def test_invoke_chat_can_enable_bailian_thinking(monkeypatch):
     monkeypatch.setattr(graph, "init_chat_model", fake_init_chat_model)
 
     assert graph._invoke_chat("prompt text", "generate answer") == "model answer"
-    assert calls["kwargs"]["extra_body"] == {"enable_thinking": True}
+    assert calls["kwargs"]["max_tokens"] == 1800
+    assert calls["kwargs"]["extra_body"] == {
+        "enable_thinking": True,
+        "thinking_budget": 1024,
+    }
 
 
 def test_check_answer_formats_pic_list_from_contexts(monkeypatch):

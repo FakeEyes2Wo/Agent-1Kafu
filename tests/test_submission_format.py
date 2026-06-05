@@ -210,9 +210,16 @@ def test_answer_cache_reuses_only_matching_signature_question_and_context(tmp_pa
 
     class Settings:
         chat_model = "qwen-chat"
+        chat_enable_thinking = True
+        chat_max_tokens = 1800
+        chat_thinking_budget = 1024
         vision_model = "qwen-vision"
 
     signature = _answer_cache_signature(Settings())
+    assert signature["chat_enable_thinking"] is True
+    assert signature["chat_max_tokens"] == 1800
+    assert signature["chat_thinking_budget"] == 1024
+
     item = _answer_cache_item(
         "1",
         "question",

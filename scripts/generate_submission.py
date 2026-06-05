@@ -288,8 +288,9 @@ def _answer_cache_signature(settings) -> dict:
         "version": ANSWER_CACHE_VERSION,
         "chat_model": getattr(settings, "chat_model", ""),
         "chat_enable_thinking": bool(getattr(settings, "chat_enable_thinking", False)),
+        "chat_max_tokens": int(getattr(settings, "chat_max_tokens", CHAT_MAX_TOKENS)),
+        "chat_thinking_budget": int(getattr(settings, "chat_thinking_budget", 0) or 0),
         "vision_model": getattr(settings, "vision_model", ""),
-        "chat_max_tokens": CHAT_MAX_TOKENS,
         "prompt_hash": _stable_hash(prompt_fingerprint),
         "rag_context_format_version": RAG_CONTEXT_FORMAT_VERSION,
     }

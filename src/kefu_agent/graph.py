@@ -358,7 +358,12 @@ def _chat_extra_body(settings: Any) -> dict[str, Any] | None:
     base_url = str(getattr(settings, "model_base_url", "")).lower()
     if source not in {"bailian", "dashscope"} and "dashscope" not in base_url:
         return None
-    return {"enable_thinking": bool(getattr(settings, "chat_enable_thinking", False))}
+    enable_thinking = bool(getattr(settings, "chat_enable_thinking", False))
+    extra_body: dict[str, Any] = {"enable_thinking": enable_thinking}
+    thinking_budget = int(getattr(settings, "chat_thinking_budget", 0) or 0)
+    if enable_thinking and thinking_budget > 0:
+        extra_body["thinking_budget"] = thinking_budget
+    return extra_body
 
 
 def response_payload(answer: str, session_id: str) -> dict:
@@ -382,7 +387,7 @@ def _invoke_chat(prompt: str, error_context: str) -> str:
             api_key=settings.model_api_key,
             base_url=settings.model_base_url,
             temperature=0.2,
-            max_tokens=CHAT_MAX_TOKENS,
+            max_tokens=int(getattr(settings, "chat_max_tokens", CHAT_MAX_TOKENS)),
             timeout=settings.model_timeout_seconds,
             max_retries=1,
             extra_body=_chat_extra_body(settings),

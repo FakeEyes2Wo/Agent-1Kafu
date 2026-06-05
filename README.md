@@ -36,6 +36,8 @@ DASHSCOPE_API_KEY=
 BAILIAN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 CHAT_MODEL=qwen3.7-plus-2026-05-26
 CHAT_ENABLE_THINKING=false
+CHAT_MAX_TOKENS=450
+CHAT_THINKING_BUDGET=0
 VISION_MODEL=qwen3.7-plus-2026-05-26
 EMBEDDING_BACKEND=openai
 EMBEDDING_MODEL=text-embedding-v4
@@ -46,7 +48,9 @@ RERANK_ENABLED=false
 `qwen3.7-plus` supports thinking mode through Bailian/DashScope. The default
 keeps `CHAT_ENABLE_THINKING=false` for faster, more predictable batch
 submission generation. Set it to `true` when you want higher-reasoning answers
-and can accept extra tokens and latency.
+and can accept extra tokens and latency. For thinking ablations, increase
+`CHAT_MAX_TOKENS` and optionally set `CHAT_THINKING_BUDGET`; otherwise the
+thinking trace can consume the output budget and leave the final answer empty.
 
 Index building always creates a local BM25/sparse index over manual chunks.
 If `BAILIAN_API_KEY` or `DASHSCOPE_API_KEY` is set, dense vectors are added
