@@ -125,7 +125,12 @@ def _get_embeddings(
                 "Set BAILIAN_API_KEY, DASHSCOPE_API_KEY, or OPENAI_API_KEY before "
                 "using API embeddings."
             )
-        return OpenAIEmbeddings(model=model_name, api_key=api_key, base_url=base_url)
+        return OpenAIEmbeddings(
+            model=model_name,
+            api_key=api_key,
+            base_url=base_url,
+            check_embedding_ctx_length=False,
+        )
     if backend != "hash":
         raise RuntimeError(f"Unsupported EMBEDDING_BACKEND: {backend}")
     return HashEmbeddings()

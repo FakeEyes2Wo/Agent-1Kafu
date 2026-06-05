@@ -71,6 +71,39 @@ def test_hash_embeddings_have_similarity_signal():
     assert cosine(a, b) > cosine(a, c)
 
 
+def test_api_embeddings_disable_langchain_tokenized_payload(monkeypatch):
+    import kefu_agent.rag.embeddings as embeddings_mod
+
+    calls = []
+
+    class FakeOpenAIEmbeddings:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+    embeddings_mod._get_embeddings.cache_clear()
+    monkeypatch.setattr(embeddings_mod, "OpenAIEmbeddings", FakeOpenAIEmbeddings)
+
+    embeddings_mod._get_embeddings(
+        "openai",
+        "text-embedding-v4",
+        "",
+        "./storage/models",
+        "sk-test",
+        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        True,
+    )
+
+    assert calls == [
+        {
+            "model": "text-embedding-v4",
+            "api_key": "sk-test",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "check_embedding_ctx_length": False,
+        }
+    ]
+    embeddings_mod._get_embeddings.cache_clear()
+
+
 def test_parse_manual_json_shape(tmp_path):
     path = tmp_path / "manual.txt"
     path.write_text('["# Title\\nBody<PIC>", ["img_1"]]', encoding="utf-8")
