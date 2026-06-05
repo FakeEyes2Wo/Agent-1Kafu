@@ -1,8 +1,14 @@
 from scripts.generate_submission import (
+    ANSWER_CACHE_VERSION,
     CONTEXT_CACHE_VERSION,
+    _answer_cache_item,
+    _answer_cache_signature,
+    _append_answer_cache,
     _context_cache_signature,
+    _load_answer_cache,
     _load_completed_rows,
     _question_rows,
+    _valid_answer_cache_item,
     clean_question,
     main,
     prepare_context_cache,
@@ -199,6 +205,43 @@ def test_context_cache_signature_includes_rag_fields():
     }
 
 
+def test_answer_cache_reuses_only_matching_signature_question_and_context(tmp_path):
+    cache_path = tmp_path / "answers_cache.jsonl"
+
+    class Settings:
+        chat_model = "qwen-chat"
+        vision_model = "qwen-vision"
+
+    signature = _answer_cache_signature(Settings())
+    item = _answer_cache_item(
+        "1",
+        "question",
+        "contexts",
+        "final answer",
+        "submission_1",
+        {
+            "draft_answer": "draft",
+            "checked_answer": "checked",
+            "api_calls": [{"phase": "generate_answer", "usage": {"input_tokens": 10}}],
+            "usage": {"input_tokens": 10},
+        },
+        signature,
+    )
+    _append_answer_cache(cache_path, item)
+
+    loaded = _load_answer_cache(cache_path)
+
+    assert ANSWER_CACHE_VERSION == 1
+    assert loaded["1"]["draft_answer"] == "draft"
+    assert loaded["1"]["usage"] == {"input_tokens": 10}
+    assert _valid_answer_cache_item(loaded["1"], signature, "question", "contexts")
+    assert not _valid_answer_cache_item(loaded["1"], signature, "changed", "contexts")
+    assert not _valid_answer_cache_item(loaded["1"], signature, "question", "changed")
+    assert not _valid_answer_cache_item(
+        loaded["1"], {**signature, "chat_model": "other"}, "question", "contexts"
+    )
+
+
 def test_main_generates_submission_without_history_argument(monkeypatch, tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -225,17 +268,17 @@ def test_main_generates_submission_without_history_argument(monkeypatch, tmp_pat
 
     calls = []
 
-    async def fake_answer_question_async(
+    async def fake_answer_question_with_trace_async(
         question,
         session_id=None,
         contexts=None,
     ):
         calls.append((question, session_id, contexts))
-        return "answer", session_id
+        return "answer", session_id, {"draft_answer": "draft", "final_answer": "answer"}
 
     monkeypatch.setattr(
-        "scripts.generate_submission.answer_question_async",
-        fake_answer_question_async,
+        "scripts.generate_submission.answer_question_with_trace_async",
+        fake_answer_question_with_trace_async,
     )
 
     main(["--workers", "2"])
@@ -244,6 +287,62 @@ def test_main_generates_submission_without_history_argument(monkeypatch, tmp_pat
         ("hello\nagain", "submission_1", "context 1"),
         ("single", "submission_2", "context 2"),
     ]
+    cache = _load_answer_cache(tmp_path / "storage" / "api_cache" / "answers_cache.jsonl")
+    assert cache["1"]["draft_answer"] == "draft"
+    assert cache["2"]["final_answer"] == "answer"
+
+
+def test_main_reuses_answer_cache_without_api_call(monkeypatch, tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "question_public.csv").write_text(
+        'id,question\n1,"""cached question"""\n',
+        encoding="utf-8",
+    )
+    (data_dir / "submission_example.csv").write_text("id,ret\n1,example\n", encoding="utf-8")
+
+    class Settings:
+        pass
+
+    Settings.data_dir = data_dir
+    Settings.vectorstore_dir = tmp_path / "storage"
+    Settings.chat_model = "qwen-chat"
+    Settings.vision_model = "qwen-vision"
+
+    signature = _answer_cache_signature(Settings())
+    _append_answer_cache(
+        tmp_path / "storage" / "api_cache" / "answers_cache.jsonl",
+        _answer_cache_item(
+            "1",
+            "cached question",
+            "context 1",
+            "cached answer",
+            "submission_1",
+            {"draft_answer": "draft", "final_answer": "cached answer"},
+            signature,
+        ),
+    )
+
+    monkeypatch.setattr("scripts.generate_submission.get_settings", lambda: Settings())
+    monkeypatch.setattr("scripts.generate_submission.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "scripts.generate_submission.prepare_context_cache",
+        lambda questions, cache_path, settings: {"1": "context 1"},
+    )
+
+    async def fake_answer_question_with_trace_async(*args, **kwargs):
+        raise AssertionError("cached answer should skip API call")
+
+    monkeypatch.setattr(
+        "scripts.generate_submission.answer_question_with_trace_async",
+        fake_answer_question_with_trace_async,
+    )
+
+    main(["--workers", "1"])
+
+    assert (tmp_path / "submission.csv").read_text(encoding="utf-8-sig") == (
+        "id,ret\n1,cached answer\n"
+    )
 
 
 def test_main_resumes_and_writes_blank_rows_for_missing_answers(monkeypatch, tmp_path):
@@ -273,17 +372,18 @@ def test_main_resumes_and_writes_blank_rows_for_missing_answers(monkeypatch, tmp
 
     calls = []
 
-    async def fake_answer_question_async(
+    async def fake_answer_question_with_trace_async(
         question,
         session_id=None,
         contexts=None,
     ):
         calls.append((question, session_id, contexts))
-        return f"new answer for {question}", session_id
+        answer = f"new answer for {question}"
+        return answer, session_id, {"draft_answer": answer, "final_answer": answer}
 
     monkeypatch.setattr(
-        "scripts.generate_submission.answer_question_async",
-        fake_answer_question_async,
+        "scripts.generate_submission.answer_question_with_trace_async",
+        fake_answer_question_with_trace_async,
     )
 
     main(["--workers", "2"])
@@ -330,17 +430,18 @@ def test_main_force_regenerates_existing_answers(monkeypatch, tmp_path):
 
     calls = []
 
-    async def fake_answer_question_async(
+    async def fake_answer_question_with_trace_async(
         question,
         session_id=None,
         contexts=None,
     ):
         calls.append((question, session_id, contexts))
-        return f"new answer for {question}", session_id
+        answer = f"new answer for {question}"
+        return answer, session_id, {"draft_answer": answer, "final_answer": answer}
 
     monkeypatch.setattr(
-        "scripts.generate_submission.answer_question_async",
-        fake_answer_question_async,
+        "scripts.generate_submission.answer_question_with_trace_async",
+        fake_answer_question_with_trace_async,
     )
 
     main(["--workers", "2", "--force"])

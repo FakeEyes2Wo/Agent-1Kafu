@@ -1,7 +1,7 @@
 import asyncio
 import time
 import uuid
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from langchain.chat_models import init_chat_model
 from langchain.messages import HumanMessage
@@ -115,7 +115,17 @@ class AgentState(TypedDict, total=False):
     session_id: str
     image_summary: str
     contexts: str
+    draft_answer: str
+    checked_answer: str
     answer: str
+    api_calls: list[dict[str, Any]]
+
+
+class ChatText(str):
+    def __new__(cls, value: str, usage: dict[str, int] | None = None):
+        item = str.__new__(cls, value)
+        item.usage = usage or {}
+        return item
 
 
 def answer_question(
@@ -124,6 +134,21 @@ def answer_question(
     session_id: str | None = None,
     contexts: str | None = None,
 ) -> tuple[str, str]:
+    answer, sid, _trace = answer_question_with_trace(
+        question,
+        images=images,
+        session_id=session_id,
+        contexts=contexts,
+    )
+    return answer, sid
+
+
+def answer_question_with_trace(
+    question: str,
+    images: list[str] | None = None,
+    session_id: str | None = None,
+    contexts: str | None = None,
+) -> tuple[str, str, dict[str, Any]]:
     sid = session_id or f"kf_session_{uuid.uuid4().hex}"
     input_state = {
         "question": question,
@@ -133,7 +158,7 @@ def answer_question(
     if contexts is not None:
         input_state["contexts"] = contexts
     state = get_graph().invoke(input_state)
-    return state["answer"], state["session_id"]
+    return state["answer"], state["session_id"], _trace_from_state(state)
 
 
 async def answer_question_async(
@@ -144,6 +169,21 @@ async def answer_question_async(
 ) -> tuple[str, str]:
     return await asyncio.to_thread(
         answer_question,
+        question,
+        images=images,
+        session_id=session_id,
+        contexts=contexts,
+    )
+
+
+async def answer_question_with_trace_async(
+    question: str,
+    images: list[str] | None = None,
+    session_id: str | None = None,
+    contexts: str | None = None,
+) -> tuple[str, str, dict[str, Any]]:
+    return await asyncio.to_thread(
+        answer_question_with_trace,
         question,
         images=images,
         session_id=session_id,
@@ -238,21 +278,25 @@ def generate_answer(state: AgentState) -> AgentState:
     )
 
     answer = _invoke_chat(prompt, error_context="generate answer")
+    _record_api_call(state, "generate_answer", answer)
     if not answer:
         answer = _check_and_rewrite_answer(state, "")
     if not answer:
         raise RuntimeError("chat model returned an empty answer")
 
+    state["draft_answer"] = str(answer)
     state["answer"] = answer
     return state
 
 
 def check_answer(state: AgentState) -> AgentState:
     answer = (state.get("answer") or "").strip()
+    state.setdefault("draft_answer", answer)
     final_answer = _check_and_rewrite_answer(state, answer)
     if not final_answer:
         raise RuntimeError("check and rewrite returned an empty answer")
 
+    state["checked_answer"] = str(final_answer)
     state["answer"] = format_answer_with_image_list(
         final_answer, state.get("contexts", "")
     )
@@ -267,7 +311,9 @@ def _check_and_rewrite_answer(state: AgentState, answer: str) -> str:
         question=state["question"],
         answer=answer,
     )
-    return _invoke_chat(prompt, error_context="check and rewrite answer")
+    answer = _invoke_chat(prompt, error_context="check and rewrite answer")
+    _record_api_call(state, "check_and_rewrite_answer", answer)
+    return answer
 
 
 def response_payload(answer: str, session_id: str) -> dict:
@@ -295,9 +341,58 @@ def _invoke_chat(prompt: str, error_context: str) -> str:
             timeout=settings.model_timeout_seconds,
             max_retries=1,
         )
-        return _OUTPUT_PARSER.invoke(model.invoke([HumanMessage(content=prompt)])).strip()
+        message = model.invoke([HumanMessage(content=prompt)])
+        answer = _OUTPUT_PARSER.invoke(message).strip()
+        return ChatText(answer, _usage_from_message(message))
     except Exception as exc:
         raise RuntimeError(f"failed to {error_context} with chat model") from exc
+
+
+def _usage_from_message(message: Any) -> dict[str, int]:
+    usage = getattr(message, "usage_metadata", None) or {}
+    if not usage:
+        metadata = getattr(message, "response_metadata", {}) or {}
+        usage = metadata.get("token_usage") or metadata.get("usage") or {}
+    return {
+        str(key): int(value)
+        for key, value in dict(usage).items()
+        if isinstance(value, int | float)
+    }
+
+
+def _record_api_call(state: AgentState, phase: str, answer: str) -> None:
+    calls = list(state.get("api_calls") or [])
+    calls.append(
+        {
+            "phase": phase,
+            "usage": getattr(answer, "usage", {}) or {},
+            "text_chars": len(str(answer)),
+        }
+    )
+    state["api_calls"] = calls
+
+
+def _trace_from_state(state: AgentState) -> dict[str, Any]:
+    api_calls = list(state.get("api_calls") or [])
+    return {
+        "image_summary": state.get("image_summary", ""),
+        "contexts": state.get("contexts", ""),
+        "draft_answer": state.get("draft_answer", ""),
+        "checked_answer": state.get("checked_answer", ""),
+        "final_answer": state.get("answer", ""),
+        "api_calls": api_calls,
+        "usage": _merge_api_usage(api_calls),
+    }
+
+
+def _merge_api_usage(api_calls: list[dict[str, Any]]) -> dict[str, int]:
+    merged: dict[str, int] = {}
+    for call in api_calls:
+        usage = call.get("usage") or {}
+        for key, value in usage.items():
+            if isinstance(value, int | float):
+                merged[str(key)] = merged.get(str(key), 0) + int(value)
+    return merged
 
 
 def _require_chat_model() -> None:

@@ -41,6 +41,35 @@ def test_answer_question_can_use_precomputed_contexts(monkeypatch):
     assert answer == "checked"
 
 
+def test_answer_question_with_trace_returns_draft_final_and_usage(monkeypatch):
+    monkeypatch.setattr(graph, "_require_chat_model", lambda: None)
+    monkeypatch.setattr(graph, "retrieve", lambda query: [])
+
+    def fake_invoke(prompt, error_context):
+        if error_context == "generate answer":
+            return graph.ChatText("draft", {"input_tokens": 3, "output_tokens": 1})
+        return graph.ChatText("final", {"input_tokens": 4, "output_tokens": 2})
+
+    monkeypatch.setattr(graph, "_invoke_chat", fake_invoke)
+
+    answer, session_id, trace = graph.answer_question_with_trace(
+        "question",
+        session_id="submission_1",
+        contexts="cached evidence",
+    )
+
+    assert answer == "final"
+    assert session_id == "submission_1"
+    assert trace["draft_answer"] == "draft"
+    assert trace["checked_answer"] == "final"
+    assert trace["final_answer"] == "final"
+    assert trace["usage"] == {"input_tokens": 7, "output_tokens": 3}
+    assert [call["phase"] for call in trace["api_calls"]] == [
+        "generate_answer",
+        "check_and_rewrite_answer",
+    ]
+
+
 def test_answer_question_async_uses_sync_entrypoint(monkeypatch):
     def fake_answer_question(question, **kwargs):
         return f"answer for {question}", kwargs["session_id"]

@@ -82,7 +82,11 @@ uv run python scripts/generate_submission.py
 The script reads every row in `data/question_public.csv` and writes
 `submission.csv` in the project root using the required `id,ret` format.
 Each row is answered independently; no persistent conversation history is read
-or saved during API calls or submission generation.
+or saved during API calls or submission generation. Retrieval contexts are
+cached in `storage/vectorstore/contexts_cache.json`, and model-call traces
+(draft answer, checked answer, final answer, token usage when returned by the
+provider, and cache signatures) are appended to
+`storage/api_cache/answers_cache.jsonl` for resumable server runs.
 
 ## Test
 
