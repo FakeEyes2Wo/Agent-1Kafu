@@ -41,6 +41,8 @@ def _visual_retrieve(query: str, manual_language: str, top_k: int) -> list[Chunk
 
 @lru_cache(maxsize=1)
 def _visual_chunks() -> tuple[Chunk, ...]:
+    settings = get_settings()
+    context_window = max(1, int(getattr(settings, "visual_context_window", 240)))
     chunks: list[Chunk] = []
     for item in load_manual_chunks():
         image_ids = item.get("image_ids") or []
@@ -53,7 +55,7 @@ def _visual_chunks() -> tuple[Chunk, ...]:
                     id=f"{item['id']}::{image_id}",
                     manual=item["manual"],
                     title=item["title"],
-                    text=_image_context_text(tagged_text, image_id),
+                    text=_image_context_text(tagged_text, image_id, window=context_window),
                     image_ids=[image_id],
                     vector=[],
                     manual_language=item.get("manual_language", "zh"),

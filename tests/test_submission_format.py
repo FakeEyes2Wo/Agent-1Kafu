@@ -178,6 +178,7 @@ def test_context_cache_signature_includes_rag_fields():
         rerank_top_n = 6
         visual_retriever = "lexical"
         visual_top_k = 5
+        visual_context_window = 512
 
     signature = _context_cache_signature(Settings())
 
@@ -201,6 +202,7 @@ def test_context_cache_signature_includes_rag_fields():
         "visual_retriever_version": "2",
         "visual_retriever": "lexical",
         "visual_top_k": 5,
+        "visual_context_window": 512,
         "rag_context_format_version": "4",
     }
 

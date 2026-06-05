@@ -47,6 +47,7 @@ def _rag_settings(tmp_path: Path, **overrides):
         rerank_top_n=8,
         visual_retriever="lexical",
         visual_top_k=8,
+        visual_context_window=360,
         top_k=8,
         manual_dir=tmp_path / "manuals",
         image_dir=tmp_path / "images",
@@ -465,6 +466,41 @@ def test_visual_retrieve_builds_single_image_context(monkeypatch, tmp_path):
     assert chunks[0].image_ids == ["img_glass"]
     assert "<PIC>img_glass</PIC>" in chunks[0].text
     assert "img_other" not in chunks[0].text
+
+
+def test_visual_retrieve_uses_configured_context_window(monkeypatch, tmp_path):
+    settings = _rag_settings(tmp_path, visual_context_window=512)
+    manual_chunks = [
+        {
+            "id": "manual-1",
+            "manual": "manual",
+            "title": "glass cleaning",
+            "text": "wipe first <PIC>img_glass</PIC>",
+            "image_ids": ["img_glass"],
+            "manual_language": "en",
+        }
+    ]
+    windows = []
+
+    def fake_image_context_text(text, image_id, window=240):
+        windows.append(window)
+        return f"context for {image_id}"
+
+    monkeypatch.setattr("kefu_agent.rag.visual.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "kefu_agent.rag.visual.load_manual_chunks",
+        lambda: iter(manual_chunks),
+    )
+    monkeypatch.setattr(
+        "kefu_agent.rag.visual._image_context_text",
+        fake_image_context_text,
+    )
+    _visual_chunks.cache_clear()
+
+    chunks = visual_retrieve("glass cleaning", "en", top_k=1)
+
+    assert chunks[0].text == "context for img_glass"
+    assert windows == [512]
 
 
 def test_image_context_text_keeps_only_target_pic():

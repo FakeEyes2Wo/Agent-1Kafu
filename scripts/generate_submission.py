@@ -271,6 +271,7 @@ def _context_cache_signature(settings) -> dict:
         "visual_retriever_version": VISUAL_RETRIEVER_VERSION,
         "visual_retriever": getattr(settings, "visual_retriever", "lexical"),
         "visual_top_k": getattr(settings, "visual_top_k", 8),
+        "visual_context_window": getattr(settings, "visual_context_window", 240),
         "rag_context_format_version": RAG_CONTEXT_FORMAT_VERSION,
     }
 

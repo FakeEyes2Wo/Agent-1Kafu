@@ -42,10 +42,13 @@ CHAT_THINKING_BUDGET=0
 OPENAI_RESPONSES_MODEL=gpt-5.5
 OPENAI_RESPONSES_REASONING_EFFORT=none
 VISION_MODEL=qwen3.7-plus-2026-05-26
+VISION_MAX_IMAGES=6
+VISION_MAX_TOKENS=800
 EMBEDDING_BACKEND=openai
 EMBEDDING_MODEL=text-embedding-v4
 RAG_BACKEND=hybrid
 RERANK_ENABLED=false
+VISUAL_CONTEXT_WINDOW=360
 ```
 
 `qwen3.7-plus` supports thinking mode through Bailian/DashScope. The default
@@ -60,6 +63,12 @@ set `CHAT_API_BACKEND=openai_responses`, `OPENAI_API_KEY`, and
 `OPENAI_RESPONSES_MODEL=gpt-5.5`. Reasoning is off by default with
 `OPENAI_RESPONSES_REASONING_EFFORT=none`; set it to `low`, `medium`, or `high`
 only for explicit reasoning ablations.
+
+Multimodal budgets are configurable. `VISION_MAX_IMAGES` controls how many
+uploaded user images are summarized per request, `VISION_MAX_TOKENS` controls
+the vision-summary output budget, and `VISUAL_CONTEXT_WINDOW` controls how much
+manual text around each `<PIC>` is used for image-oriented retrieval chunks.
+Changing `VISUAL_CONTEXT_WINDOW` invalidates retrieval context caches.
 
 Index building always creates a local BM25/sparse index over manual chunks.
 If `BAILIAN_API_KEY` or `DASHSCOPE_API_KEY` is set, dense vectors are added

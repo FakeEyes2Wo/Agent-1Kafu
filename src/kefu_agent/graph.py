@@ -226,17 +226,22 @@ def summarize_images(state: AgentState) -> AgentState:
                 "text": IMAGE_SUMMARY_PROMPT,
             }
         ]
-        for image in images[:3]:
+        max_images = max(1, int(getattr(settings, "vision_max_images", 3)))
+        for image in images[:max_images]:
             content.append({"type": "image_url", "image_url": {"url": image}})
-        model = init_chat_model(
-            model=settings.vision_model,
-            model_provider="openai",
-            api_key=settings.model_api_key,
-            base_url=settings.vision_base_url,
-            temperature=0,
-            timeout=settings.model_timeout_seconds,
-            max_retries=1,
-        )
+        model_kwargs = {
+            "model": settings.vision_model,
+            "model_provider": "openai",
+            "api_key": settings.model_api_key,
+            "base_url": settings.vision_base_url,
+            "temperature": 0,
+            "timeout": settings.model_timeout_seconds,
+            "max_retries": 1,
+        }
+        vision_max_tokens = int(getattr(settings, "vision_max_tokens", 0) or 0)
+        if vision_max_tokens > 0:
+            model_kwargs["max_tokens"] = vision_max_tokens
+        model = init_chat_model(**model_kwargs)
         state["image_summary"] = _OUTPUT_PARSER.invoke(
             model.invoke([HumanMessage(content=content)])
         ).strip()

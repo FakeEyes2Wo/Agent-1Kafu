@@ -39,6 +39,8 @@ def test_defaults_to_bailian_api_with_local_hybrid_rag():
     assert settings.openai_responses_reasoning_effort == "none"
     assert not settings.use_openai_responses
     assert settings.vision_model == "qwen3.7-plus-2026-05-26"
+    assert settings.vision_max_images == 6
+    assert settings.vision_max_tokens == 800
     assert settings.embedding_backend == "openai"
     assert settings.embedding_model == "text-embedding-v4"
     assert settings.embedding_query_prompt_name == ""
@@ -49,6 +51,7 @@ def test_defaults_to_bailian_api_with_local_hybrid_rag():
     assert not settings.rerank_enabled
     assert settings.rerank_backend == "none"
     assert settings.rerank_top_n == 8
+    assert settings.visual_context_window == 360
     assert settings.use_openai_embeddings
     assert not settings.use_sentence_transformer_embeddings
 

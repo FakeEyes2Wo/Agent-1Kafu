@@ -276,6 +276,49 @@ def test_generate_answer_prompt_has_language_rule_and_no_history(monkeypatch):
     assert "历史对话" not in prompts[-1]
 
 
+def test_summarize_images_uses_configured_vision_budget(monkeypatch):
+    calls = {}
+
+    class Settings:
+        has_openai_key = True
+        vision_model = "vision-model"
+        model_api_key = "test-key"
+        vision_base_url = "https://vision.example/v1"
+        model_timeout_seconds = 12
+        vision_max_images = 4
+        vision_max_tokens = 700
+
+    class FakeModel:
+        def invoke(self, messages):
+            calls["message"] = messages[0]
+            return AIMessage(content=" image facts ")
+
+    def fake_init_chat_model(**kwargs):
+        calls["kwargs"] = kwargs
+        return FakeModel()
+
+    monkeypatch.setattr(graph, "get_settings", lambda: Settings())
+    monkeypatch.setattr(graph, "init_chat_model", fake_init_chat_model)
+
+    state = graph.summarize_images(
+        {"images": ["img1", "img2", "img3", "img4", "img5"]}
+    )
+
+    assert state["image_summary"] == "image facts"
+    assert calls["kwargs"] == {
+        "model": "vision-model",
+        "model_provider": "openai",
+        "api_key": "test-key",
+        "base_url": "https://vision.example/v1",
+        "temperature": 0,
+        "timeout": 12,
+        "max_retries": 1,
+        "max_tokens": 700,
+    }
+    content = calls["message"].content
+    assert len([item for item in content if item["type"] == "image_url"]) == 4
+
+
 def test_invoke_chat_uses_langchain_v1_init_chat_model(monkeypatch):
     calls = {}
 

@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     openai_responses_reasoning_effort: str = "none"
     vision_model: str = "qwen3.7-plus-2026-05-26"
     vision_model_url: str = ""
+    vision_max_images: int = 6
+    vision_max_tokens: int = 800
     embedding_model: str = "text-embedding-v4"
     embedding_backend: str = "openai"
     embedding_query_prompt_name: str = ""
@@ -79,6 +81,7 @@ class Settings(BaseSettings):
     rerank_top_n: int = 8
     visual_retriever: str = "lexical"
     visual_top_k: int = 8
+    visual_context_window: int = 360
     model_timeout_seconds: float = 60
 
     def model_post_init(self, __context: object) -> None:
