@@ -111,6 +111,7 @@ async def main_async(args: argparse.Namespace) -> None:
             answer_cache_path,
             answer_cache_signature,
             max(1, args.workers),
+            max(0, args.retries),
             progress,
         )
 
@@ -128,6 +129,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         type=int,
         default=int(os.getenv("SUBMISSION_WORKERS", "4")),
         help="Number of concurrent answer generation workers.",
+    )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=int(os.getenv("SUBMISSION_RETRIES", "2")),
+        help="Retries per question after transient API failures or empty answers.",
     )
     parser.add_argument(
         "--contexts-cache",
@@ -377,6 +384,7 @@ async def _generate_missing_answers(
     answer_cache_path: Path,
     answer_cache_signature: dict,
     workers: int,
+    retries: int,
     progress: tqdm,
 ) -> None:
     queue: asyncio.Queue[dict[str, str]] = asyncio.Queue()
@@ -397,21 +405,17 @@ async def _generate_missing_answers(
             question = clean_question(row["question"])
             contexts = contexts_by_id[qid]
             try:
-                answer, session_id, trace = await answer_question_with_trace_async(
+                answer, session_id, trace = await _answer_with_retries(
                     question,
                     session_id=f"submission_{qid}",
                     contexts=contexts,
+                    retries=retries,
                 )
             except Exception as exc:
                 raise RuntimeError(
-                    f"failed to generate id={qid}; saved progress is in {output_path}"
+                    f"failed to generate id={qid} after {retries + 1} attempt(s); "
+                    f"saved progress is in {output_path}"
                 ) from exc
-
-            answer = answer.strip()
-            if not answer:
-                raise RuntimeError(
-                    f"empty ret for id={qid}; saved progress is in {output_path}"
-                )
 
             async with write_lock:
                 rows_by_id[qid] = answer
@@ -439,6 +443,35 @@ async def _generate_missing_answers(
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         raise
+
+
+async def _answer_with_retries(
+    question: str,
+    session_id: str,
+    contexts: str,
+    retries: int,
+) -> tuple[str, str, dict]:
+    last_error: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            answer, resolved_session_id, trace = await answer_question_with_trace_async(
+                question,
+                session_id=session_id,
+                contexts=contexts,
+            )
+            answer = answer.strip()
+            if not answer:
+                raise RuntimeError("empty answer")
+            return answer, resolved_session_id, trace
+        except Exception as exc:
+            last_error = exc
+            if attempt >= retries:
+                break
+            await asyncio.sleep(min(30, 2**attempt))
+
+    if last_error is None:
+        raise RuntimeError("answer generation failed")
+    raise last_error
 
 
 def write_submission(

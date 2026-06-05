@@ -292,6 +292,65 @@ def test_main_generates_submission_without_history_argument(monkeypatch, tmp_pat
     assert cache["2"]["final_answer"] == "answer"
 
 
+def test_main_retries_transient_generation_failure(monkeypatch, tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "question_public.csv").write_text(
+        'id,question\n1,"""retry me"""\n',
+        encoding="utf-8",
+    )
+    (data_dir / "submission_example.csv").write_text("id,ret\n1,example\n", encoding="utf-8")
+
+    class Settings:
+        pass
+
+    Settings.data_dir = data_dir
+    Settings.vectorstore_dir = tmp_path / "storage"
+
+    monkeypatch.setattr("scripts.generate_submission.get_settings", lambda: Settings())
+    monkeypatch.setattr("scripts.generate_submission.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "scripts.generate_submission.prepare_context_cache",
+        lambda questions, cache_path, settings: {"1": "context 1"},
+    )
+
+    calls = []
+    sleeps = []
+
+    async def fake_answer_question_with_trace_async(
+        question,
+        session_id=None,
+        contexts=None,
+    ):
+        calls.append((question, session_id, contexts))
+        if len(calls) == 1:
+            raise RuntimeError("transient API failure")
+        return "answer after retry", session_id, {
+            "draft_answer": "draft",
+            "final_answer": "answer after retry",
+        }
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
+    monkeypatch.setattr(
+        "scripts.generate_submission.answer_question_with_trace_async",
+        fake_answer_question_with_trace_async,
+    )
+    monkeypatch.setattr("scripts.generate_submission.asyncio.sleep", fake_sleep)
+
+    main(["--workers", "1", "--retries", "1"])
+
+    assert calls == [
+        ("retry me", "submission_1", "context 1"),
+        ("retry me", "submission_1", "context 1"),
+    ]
+    assert sleeps == [1]
+    assert (tmp_path / "submission.csv").read_text(encoding="utf-8-sig") == (
+        "id,ret\n1,answer after retry\n"
+    )
+
+
 def test_main_reuses_answer_cache_without_api_call(monkeypatch, tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()

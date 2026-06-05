@@ -160,6 +160,24 @@ def test_check_answer_checks_and_rewrites_once(monkeypatch):
     assert "不使用 Markdown 粗体" in calls[-1][0]
 
 
+def test_check_answer_falls_back_to_draft_when_rewrite_is_empty(monkeypatch):
+    monkeypatch.setattr(graph, "_invoke_chat", lambda prompt, error_context: "")
+
+    state = graph.check_answer(
+        {
+            "question": "question",
+            "image_summary": graph.NO_IMAGE_SUMMARY,
+            "contexts": "evidence",
+            "answer": "draft answer",
+        }
+    )
+
+    assert state["answer"] == "draft answer"
+    assert state["checked_answer"] == "draft answer"
+    assert state["draft_answer"] == "draft answer"
+    assert state["api_calls"][-1]["text_chars"] == 0
+
+
 def test_generate_answer_uses_reflection_when_initial_answer_is_empty(monkeypatch):
     calls = []
 

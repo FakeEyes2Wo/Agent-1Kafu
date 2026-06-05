@@ -294,6 +294,8 @@ def check_answer(state: AgentState) -> AgentState:
     state.setdefault("draft_answer", answer)
     final_answer = _check_and_rewrite_answer(state, answer)
     if not final_answer:
+        final_answer = answer
+    if not final_answer:
         raise RuntimeError("check and rewrite returned an empty answer")
 
     state["checked_answer"] = str(final_answer)
