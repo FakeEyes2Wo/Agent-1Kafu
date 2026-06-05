@@ -21,6 +21,7 @@ from kefu_agent.prompts import (
     IMAGE_SUMMARY_PROMPT,
 )
 from kefu_agent.rag import (
+    FAISS_SEARCH_VERSION,
     HYBRID_SEARCH_VERSION,
     MANUAL_LANGUAGE_FILTER_VERSION,
     MANUAL_PIC_TAG_VERSION,
@@ -268,6 +269,7 @@ def _context_cache_signature(settings) -> dict:
         "manual_language_filter_version": MANUAL_LANGUAGE_FILTER_VERSION,
         "manual_pic_tag_version": MANUAL_PIC_TAG_VERSION,
         "hybrid_search_version": HYBRID_SEARCH_VERSION,
+        "faiss_search_version": FAISS_SEARCH_VERSION,
         "visual_retriever_version": VISUAL_RETRIEVER_VERSION,
         "visual_retriever": getattr(settings, "visual_retriever", "lexical"),
         "visual_top_k": getattr(settings, "visual_top_k", 8),

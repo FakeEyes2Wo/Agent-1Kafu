@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -254,6 +255,99 @@ def test_build_index_uses_llamaindex_backend(monkeypatch, tmp_path):
     assert calls["nodes"][0]["id"] == "manual-1"
     assert calls["embed_model"] == "embed"
     assert calls["persist_dir"] == str(settings.llamaindex_dir)
+
+
+def test_build_index_writes_faiss_index_when_enabled(monkeypatch, tmp_path):
+    settings = _rag_settings(tmp_path, rag_backend="faiss")
+    settings.manual_dir.mkdir(parents=True)
+    (settings.manual_dir / "English Manual.txt").write_text(
+        '["# Charging\\nDCB107 light means charging", []]',
+        encoding="utf-8",
+    )
+    calls = {}
+
+    def fake_write_faiss_index(received_settings, chunks, vectors):
+        calls["settings"] = received_settings
+        calls["chunk_ids"] = [chunk["id"] for chunk in chunks]
+        calls["vector_dim"] = len(vectors[0])
+
+    monkeypatch.setattr("kefu_agent.rag.retrieval.get_settings", lambda: settings)
+    monkeypatch.setattr("kefu_agent.rag.parsing.get_settings", lambda: settings)
+    monkeypatch.setattr("kefu_agent.rag.visual.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "kefu_agent.rag.retrieval._write_faiss_index",
+        fake_write_faiss_index,
+    )
+
+    assert build_index() == 1
+
+    metadata = json.loads(settings.index_meta_path.read_text(encoding="utf-8"))
+    assert calls["settings"] is settings
+    assert calls["chunk_ids"] == ["English Manual-1"]
+    assert calls["vector_dim"] > 0
+    assert metadata["rag_backend"] == "faiss"
+    assert metadata["faiss_search_version"] == "1"
+
+
+def test_retrieve_uses_faiss_dense_backend(monkeypatch, tmp_path):
+    settings = _rag_settings(
+        tmp_path,
+        rag_backend="faiss",
+        visual_retriever="off",
+    )
+    settings.vectorstore_dir.mkdir(parents=True)
+    indexed = Chunk(
+        "manual-1",
+        "manual",
+        "title",
+        "indexed text",
+        [],
+        [1.0, 0.0],
+        manual_language="en",
+    )
+    settings.index_path.write_text(
+        json.dumps(indexed.__dict__, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    _write_index_metadata(settings, [1.0, 0.0])
+    (settings.vectorstore_dir / "index.faiss").write_bytes(b"fake")
+    (settings.vectorstore_dir / "faiss_ids.json").write_text("[]", encoding="utf-8")
+    calls = {}
+    faiss_chunk = Chunk(
+        "faiss-1",
+        "manual",
+        "title",
+        "dense text",
+        [],
+        [1.0, 0.0],
+        manual_language="en",
+        score=0.9,
+    )
+
+    def fake_faiss_dense_retrieve(query, manual_language, top_k):
+        calls["query"] = query
+        calls["manual_language"] = manual_language
+        calls["top_k"] = top_k
+        return [faiss_chunk]
+
+    monkeypatch.setattr("kefu_agent.rag.retrieval.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "kefu_agent.rag.retrieval._lexical_retrieve",
+        lambda query, manual_language, top_k: [],
+    )
+    monkeypatch.setattr(
+        "kefu_agent.rag.retrieval._faiss_dense_retrieve",
+        fake_faiss_dense_retrieve,
+    )
+
+    chunks = retrieve("How do I charge it?", top_k=1)
+
+    assert calls == {
+        "query": "How do I charge it?",
+        "manual_language": "en",
+        "top_k": settings.retrieval_top_k,
+    }
+    assert [chunk.id for chunk in chunks] == ["faiss-1"]
 
 
 def test_retrieve_returns_chunks_from_llamaindex_nodes(monkeypatch, tmp_path):

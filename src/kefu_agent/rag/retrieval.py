@@ -31,6 +31,7 @@ from .visual import VISUAL_RETRIEVER_VERSION, _visual_retrieve, visual_retrieve
 
 
 HYBRID_SEARCH_VERSION = "3"
+FAISS_SEARCH_VERSION = "1"
 
 
 def build_index() -> int:
@@ -56,6 +57,8 @@ def build_index() -> int:
         for chunk, vector in zip(chunks, vectors, strict=False):
             item = Chunk(vector=vector, **chunk)
             f.write(json.dumps(asdict(item), ensure_ascii=False) + "\n")
+    if _rag_backend(settings) == "faiss":
+        _write_faiss_index(settings, chunks, vectors)
     _write_index_metadata(settings, vectors[0] if vectors else [])
     _load_index.cache_clear()
     _bm25_state.cache_clear()
@@ -104,7 +107,11 @@ def retrieve(query: str, top_k: int | None = None) -> list[Chunk]:
             fused_chunks = _rerank_nodes(query, fused_chunks, settings.rerank_top_n)
         return _dedupe_chunks(fused_chunks)[:final_limit]
 
-    if not settings.index_path.exists() or not _index_metadata_matches(settings):
+    if (
+        not settings.index_path.exists()
+        or not _index_metadata_matches(settings)
+        or not _faiss_index_available(settings)
+    ):
         if build_index() == 0:
             return []
 
@@ -156,6 +163,8 @@ def _dense_retrieve(query: str, manual_language: str, top_k: int) -> list[Chunk]
         return []
     if backend in {"openai", "bailian", "dashscope"} and not settings.has_openai_key:
         return []
+    if _rag_backend(settings) == "faiss":
+        return _faiss_dense_retrieve(query, manual_language, top_k)
     chunks = [
         chunk for chunk in _load_index(str(settings.index_path))
         if chunk.manual_language == manual_language and chunk.vector
@@ -347,6 +356,147 @@ def _get_reranker(model_name: str, cache_folder: str) -> Any:
     return CrossEncoder(model_name, cache_folder=cache_folder, trust_remote_code=True)
 
 
+def _write_faiss_index(
+    settings: Settings,
+    chunks: list[dict[str, Any]],
+    vectors: list[list[float]],
+) -> None:
+    ids, matrix = _faiss_matrix(chunks, vectors)
+    if not ids:
+        _clear_faiss_index(settings)
+        return
+    faiss = _load_faiss()
+    index = faiss.IndexFlatIP(matrix.shape[1])
+    index.add(matrix)
+    _faiss_index_path(settings).parent.mkdir(parents=True, exist_ok=True)
+    faiss.write_index(index, str(_faiss_index_path(settings)))
+    _faiss_ids_path(settings).write_text(
+        json.dumps(ids, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _faiss_dense_retrieve(query: str, manual_language: str, top_k: int) -> list[Chunk]:
+    settings = get_settings()
+    if top_k <= 0 or not _faiss_index_available(settings):
+        return []
+    faiss = _load_faiss()
+    index = faiss.read_index(str(_faiss_index_path(settings)))
+    ids = json.loads(_faiss_ids_path(settings).read_text(encoding="utf-8"))
+    if not ids or getattr(index, "ntotal", 0) <= 0:
+        return []
+    query_vector = get_embeddings().embed_query(query)
+    matrix = _query_faiss_matrix(query_vector)
+    expected_dim = getattr(index, "d", matrix.shape[1])
+    if matrix.shape[1] != expected_dim:
+        return []
+    scores, indices = index.search(matrix, int(getattr(index, "ntotal", len(ids))))
+    chunks_by_id = {chunk.id: chunk for chunk in _load_index(str(settings.index_path))}
+    ranked: list[Chunk] = []
+    for score, index_no in zip(scores[0], indices[0], strict=False):
+        try:
+            mapping_index = int(index_no)
+        except (TypeError, ValueError):
+            continue
+        if mapping_index < 0 or mapping_index >= len(ids):
+            continue
+        chunk = chunks_by_id.get(str(ids[mapping_index]))
+        if chunk is None or chunk.manual_language != manual_language:
+            continue
+        ranked.append(Chunk(**{**chunk.__dict__, "score": float(score)}))
+        if len(ranked) >= top_k:
+            break
+    return ranked
+
+
+def _faiss_matrix(
+    chunks: list[dict[str, Any]],
+    vectors: list[list[float]],
+) -> tuple[list[str], Any]:
+    ids: list[str] = []
+    rows: list[list[float]] = []
+    dim = next((len(vector) for vector in vectors if vector), 0)
+    if dim <= 0:
+        return ids, None
+    for chunk, vector in zip(chunks, vectors, strict=False):
+        if len(vector) != dim:
+            continue
+        ids.append(str(chunk["id"]))
+        rows.append(vector)
+    if not rows:
+        return ids, None
+    return ids, _normalized_float32_matrix(rows)
+
+
+def _query_faiss_matrix(vector: list[float]) -> Any:
+    if not vector:
+        return _empty_faiss_matrix()
+    return _normalized_float32_matrix([vector])
+
+
+def _normalized_float32_matrix(rows: list[list[float]]) -> Any:
+    np = _load_numpy()
+    matrix = np.asarray(rows, dtype="float32")
+    if matrix.ndim != 2 or matrix.shape[0] == 0:
+        return np.empty((0, 0), dtype="float32")
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms = np.maximum(norms, 1e-12)
+    return matrix / norms
+
+
+def _empty_faiss_matrix() -> Any:
+    np = _load_numpy()
+    return np.empty((0, 0), dtype="float32")
+
+
+def _load_faiss() -> Any:
+    try:
+        import faiss
+    except ImportError as exc:
+        raise RuntimeError(
+            "Install the FAISS extra before using RAG_BACKEND=faiss: "
+            'python -m pip install -e ".[faiss]"'
+        ) from exc
+    return faiss
+
+
+def _load_numpy() -> Any:
+    try:
+        import numpy as np
+    except ImportError as exc:
+        raise RuntimeError(
+            "Install the FAISS extra before using RAG_BACKEND=faiss: "
+            'python -m pip install -e ".[faiss]"'
+        ) from exc
+    return np
+
+
+def _faiss_index_path(settings: Settings) -> Path:
+    return Path(settings.vectorstore_dir) / "index.faiss"
+
+
+def _faiss_ids_path(settings: Settings) -> Path:
+    return Path(settings.vectorstore_dir) / "faiss_ids.json"
+
+
+def _faiss_index_available(settings: Settings) -> bool:
+    if not _faiss_required(settings):
+        return True
+    return _faiss_index_path(settings).exists() and _faiss_ids_path(settings).exists()
+
+
+def _faiss_required(settings: Settings) -> bool:
+    return _rag_backend(settings) == "faiss" and _dense_vectors_enabled(settings)
+
+
+def _clear_faiss_index(settings: Settings) -> None:
+    for path in (_faiss_index_path(settings), _faiss_ids_path(settings)):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+
+
 def _dedupe_chunks(chunks: Iterable[Chunk]) -> list[Chunk]:
     seen: set[str] = set()
     deduped: list[Chunk] = []
@@ -447,6 +597,7 @@ def _index_signature(settings: Settings) -> dict[str, str]:
         "manual_language_filter_version": MANUAL_LANGUAGE_FILTER_VERSION,
         "manual_pic_tag_version": MANUAL_PIC_TAG_VERSION,
         "hybrid_search_version": HYBRID_SEARCH_VERSION,
+        "faiss_search_version": FAISS_SEARCH_VERSION,
         "visual_retriever_version": VISUAL_RETRIEVER_VERSION,
         "dense_vectors_enabled": str(_dense_vectors_enabled(settings)),
     }
@@ -465,6 +616,8 @@ def _rag_backend(settings: Settings) -> str:
     backend = settings.rag_backend.strip().lower()
     if backend in {"hybrid", "bm25", "local_bm25"}:
         return "hybrid"
+    if backend in {"faiss", "hybrid_faiss", "local_faiss"}:
+        return "faiss"
     if backend == "llamaindex":
         return "llamaindex"
     raise RuntimeError(f"Unsupported RAG_BACKEND: {settings.rag_backend}")

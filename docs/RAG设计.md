@@ -52,12 +52,14 @@ storage/vectorstore/index_meta.json
 
 `index.jsonl` 每行是一个 chunk，包含文本、来源、图片 ID、语言标签和可选向量。`index_meta.json` 记录当前 embedding backend、model、chunk 参数、RAG 版本、PIC 版本和是否启用 dense vectors。配置变化时，检索流程会自动重建索引，避免复用旧索引。
 
+当 `RAG_BACKEND=faiss` 且 dense vectors 可用时，构建索引会额外生成 `index.faiss` 和 `faiss_ids.json`。FAISS 只替代 dense 分支的逐条 cosine 扫描，BM25/sparse、图片邻近文本召回和 RRF 融合仍保持不变。
+
 ## 检索流程
 
 1. 如果索引不存在或 metadata 不匹配，自动构建索引。
 2. 根据问题语言选择中文、英文或中英双路手册召回。
 3. 本地 BM25/sparse 召回型号、按钮、故障灯等精确 token。
-4. 如果配置了 `BAILIAN_API_KEY` / `DASHSCOPE_API_KEY`，调用 `text-embedding-v4` 做 dense 召回。
+4. 如果配置了 `BAILIAN_API_KEY` / `DASHSCOPE_API_KEY`，调用 `text-embedding-v4` 做 dense 召回；`RAG_BACKEND=faiss` 时 dense 召回由 FAISS 索引完成。
 5. 如果 `VISUAL_RETRIEVER` 未关闭，补充 image-neighbor pseudo chunks。
 6. 使用 RRF 融合、去重、截断，返回 `.env` 中 `TOP_K` 指定数量的 chunk。
 
@@ -69,4 +71,4 @@ storage/vectorstore/index_meta.json
 
 - 服务器阶段启用 `RERANK_BACKEND=bailian` + `qwen3-vl-rerank` 并做消融。
 - 对插图增加离线 caption/OCR 缓存。
-- 如果数据规模扩大，再考虑 FAISS、Chroma 或 Milvus；当前数据量优先保持本地 JSONL/BM25 简洁实现。
+- FAISS 已作为可选 dense 检索后端接入；如果后续数据规模继续扩大，再考虑 Chroma 或 Milvus 等外部向量库。

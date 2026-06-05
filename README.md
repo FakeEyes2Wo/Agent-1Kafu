@@ -20,11 +20,14 @@ Install extras only when needed:
 ```powershell
 python -m pip install -e ".[dev]"
 python -m pip install -e ".[local]"
+python -m pip install -e ".[faiss]"
 ```
 
 `local` installs the optional local-model compatibility path
 (`sentence-transformers` and `llama-index`). It is not needed for the default
 Bailian API + local BM25/sparse workflow.
+`faiss` installs the optional FAISS dense-vector retrieval path for Linux
+servers. It is only needed when setting `RAG_BACKEND=faiss`.
 
 Edit `.env` with your Bailian/DashScope API key and `KAFU_API_TOKEN`.
 The default stack is Bailian-API-first for model calls, with local BM25/sparse
@@ -81,6 +84,11 @@ rejects larger embedding batches.
 If server-side ablation shows reranking helps, enable Bailian rerank with
 `RERANK_ENABLED=true`, `RERANK_BACKEND=bailian`, and
 `RERANK_MODEL=qwen3-vl-rerank`.
+
+To use FAISS for dense retrieval, install the FAISS extra on the server, set
+`RAG_BACKEND=faiss`, and rebuild the index. The BM25/sparse and visual
+retrieval branches still run locally; FAISS replaces only the Python
+cosine-scan dense branch.
 
 vLLM is not required for this default path. It is only needed if you choose to
 self-host open-source or fine-tuned weights instead of calling Bailian-hosted

@@ -199,6 +199,7 @@ def test_context_cache_signature_includes_rag_fields():
         "manual_language_filter_version": "2",
         "manual_pic_tag_version": "2",
         "hybrid_search_version": "3",
+        "faiss_search_version": "1",
         "visual_retriever_version": "2",
         "visual_retriever": "lexical",
         "visual_top_k": 5,

@@ -17,6 +17,7 @@ from .parsing import (
     split_manual,
 )
 from .retrieval import (
+    FAISS_SEARCH_VERSION,
     HYBRID_SEARCH_VERSION,
     build_index,
     retrieve,
@@ -52,6 +53,7 @@ __all__ = [
     "split_manual",
     "visual_retrieve",
     "HYBRID_SEARCH_VERSION",
+    "FAISS_SEARCH_VERSION",
     "MANUAL_LANGUAGE_FILTER_VERSION",
     "MANUAL_LANGUAGE_METADATA_KEY",
     "MANUAL_PIC_TAG_VERSION",

@@ -28,6 +28,10 @@ local = [
     "llama-index-embeddings-huggingface>=0.6.0",
     "sentence-transformers>=2.7.0",
 ]
+faiss = [
+    "faiss-cpu>=1.8.0; platform_system != 'Windows'",
+    "numpy>=1.26.0",
+]
 
 [build-system]
 requires = ["hatchling"]
