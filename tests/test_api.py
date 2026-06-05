@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from kefu_agent import api
@@ -12,6 +14,7 @@ def test_chat_requires_bearer_token():
 
 
 def test_chat_accepts_valid_bearer_token(monkeypatch):
+    monkeypatch.setattr(api, "get_settings", lambda: SimpleNamespace(kafu_api_token="change-me"))
     monkeypatch.setattr(api, "answer_question", lambda question, images, session_id: ("ok", "sid"))
     client = TestClient(api.create_app())
 

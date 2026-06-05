@@ -28,7 +28,7 @@ def _visual_retrieve(query: str, manual_language: str, top_k: int) -> list[Chunk
     for chunk in _visual_chunks():
         if chunk.manual_language != manual_language:
             continue
-        doc_terms = term_counts(chunk.text)
+        doc_terms = term_counts(" ".join([chunk.manual, chunk.title, chunk.text]))
         score = sum(query_terms[token] * doc_terms.get(token, 0) for token in query_terms)
         if score > 0:
             scored.append((score, chunk))
@@ -77,4 +77,4 @@ def _image_context_text(text: str, image_id: str, window: int = 240) -> str:
         current = match.group(1).strip()
         return f"<PIC>{current}</PIC>" if current == image_id else ""
 
-    return pattern.sub(replace, snippet).strip()
+    return re.sub(r"\s+", " ", pattern.sub(replace, snippet)).strip()

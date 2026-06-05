@@ -290,7 +290,12 @@ def _rerank_with_bailian(query: str, nodes: list[Any], top_n: int) -> list[Any]:
                 "instruct": "Given a web search query, retrieve relevant passages that answer the query.",
             },
         }
-    response = _post_json(url, payload, settings.model_api_key, settings.model_timeout_seconds)
+    response = _post_json(
+        url,
+        payload,
+        settings.model_api_key,
+        getattr(settings, "model_timeout_seconds", 60),
+    )
     output = response.get("output") or {}
     results = response.get("results") or output.get("results") or []
     reranked = []

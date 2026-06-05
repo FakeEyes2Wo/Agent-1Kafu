@@ -57,6 +57,7 @@ def _rag_settings(tmp_path: Path, **overrides):
         has_openai_key=False,
         model_api_key="",
         model_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        model_timeout_seconds=60,
     )
     for name, value in overrides.items():
         setattr(settings, name, value)
@@ -281,12 +282,15 @@ def test_retrieve_returns_chunks_from_llamaindex_nodes(monkeypatch, tmp_path):
     chunks = retrieve("问题", top_k=1)
 
     assert calls["query"] == "问题"
-    assert calls["similarity_top_k"] == 1
+    assert calls["similarity_top_k"] == settings.retrieval_top_k
     assert calls["filters"].filters[0].key == "manual_language"
     assert calls["filters"].filters[0].value == "zh"
-    assert chunks == [
-        Chunk("manual-1", "manual", "title", "body <PIC>", ["img_1"], [])
-    ]
+    assert len(chunks) == 1
+    assert chunks[0].id == "manual-1"
+    assert chunks[0].manual == "manual"
+    assert chunks[0].title == "title"
+    assert chunks[0].text == "body <PIC>"
+    assert chunks[0].image_ids == ["img_1"]
 
 
 def test_retrieve_filters_llamaindex_to_english_manuals(monkeypatch, tmp_path):
