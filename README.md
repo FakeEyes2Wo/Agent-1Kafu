@@ -9,6 +9,23 @@ uv sync
 Copy-Item .env.example .env
 ```
 
+For a conda/pip environment, install the default Bailian API-first stack with:
+
+```powershell
+python -m pip install -e .
+```
+
+Install extras only when needed:
+
+```powershell
+python -m pip install -e ".[dev]"
+python -m pip install -e ".[local]"
+```
+
+`local` installs the optional local-model compatibility path
+(`sentence-transformers` and `llama-index`). It is not needed for the default
+Bailian API + local BM25/sparse workflow.
+
 Edit `.env` with your Bailian/DashScope API key and `KAFU_API_TOKEN`.
 The default stack is Bailian-API-first for model calls, with local BM25/sparse
 retrieval kept in the application:
@@ -91,5 +108,6 @@ provider, and cache signatures) are appended to
 ## Test
 
 ```powershell
+uv sync --extra dev
 uv run pytest -q
 ```
