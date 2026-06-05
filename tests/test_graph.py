@@ -338,6 +338,72 @@ def test_invoke_chat_can_enable_bailian_thinking(monkeypatch):
     }
 
 
+def test_invoke_chat_can_use_openai_responses(monkeypatch):
+    calls = {}
+
+    class Settings:
+        use_openai_responses = True
+        openai_configured_api_key = "sk-openai"
+        openai_base_url = ""
+        openai_responses_model = "gpt-5.5"
+        openai_responses_reasoning_effort = "none"
+        model_timeout_seconds = 30
+        chat_max_tokens = 1200
+
+    class FakeResponse:
+        output_text = " responses answer "
+        usage = {"input_tokens": 11, "output_tokens": 3}
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            calls["request"] = kwargs
+            return FakeResponse()
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            calls["client"] = kwargs
+            self.responses = FakeResponses()
+
+    monkeypatch.setattr(graph, "get_settings", lambda: Settings())
+    monkeypatch.setattr(graph, "OpenAI", FakeOpenAI)
+    monkeypatch.setattr(
+        graph,
+        "init_chat_model",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError),
+    )
+
+    answer = graph._invoke_chat("prompt text", "generate answer")
+
+    assert answer == "responses answer"
+    assert answer.usage == {"input_tokens": 11, "output_tokens": 3}
+    assert calls["client"] == {
+        "api_key": "sk-openai",
+        "timeout": 30,
+        "max_retries": 1,
+    }
+    assert calls["request"] == {
+        "model": "gpt-5.5",
+        "input": "prompt text",
+        "max_output_tokens": 1200,
+        "reasoning": {"effort": "none"},
+    }
+
+
+def test_require_chat_model_checks_openai_responses_key(monkeypatch):
+    class Settings:
+        use_openai_responses = True
+        openai_configured_api_key = ""
+
+    monkeypatch.setattr(graph, "get_settings", lambda: Settings())
+
+    try:
+        graph._require_chat_model()
+    except RuntimeError as exc:
+        assert "OPENAI_API_KEY" in str(exc)
+    else:
+        raise AssertionError("expected missing OpenAI key to fail")
+
+
 def test_check_answer_formats_pic_list_from_contexts(monkeypatch):
     monkeypatch.setattr(
         "kefu_agent.rag.images._valid_image_ids",

@@ -30,10 +30,14 @@ def test_vision_base_url_uses_dedicated_url():
 def test_defaults_to_bailian_api_with_local_hybrid_rag():
     settings = Settings(_env_file=None)
 
+    assert settings.chat_api_backend == "langchain"
     assert settings.chat_model == "qwen3.7-plus-2026-05-26"
     assert not settings.chat_enable_thinking
     assert settings.chat_max_tokens == 450
     assert settings.chat_thinking_budget == 0
+    assert settings.openai_responses_model == "gpt-5.5"
+    assert settings.openai_responses_reasoning_effort == "none"
+    assert not settings.use_openai_responses
     assert settings.vision_model == "qwen3.7-plus-2026-05-26"
     assert settings.embedding_backend == "openai"
     assert settings.embedding_model == "text-embedding-v4"
@@ -74,6 +78,18 @@ def test_openai_key_without_base_url_uses_openai_default_base_url():
     assert settings.model_api_key == "sk-openai"
     assert settings.model_api_key_source == "openai"
     assert settings.model_base_url == "https://api.openai.com/v1"
+
+
+def test_openai_responses_backend_uses_only_openai_key():
+    settings = Settings(
+        _env_file=None,
+        chat_api_backend="openai_responses",
+        bailian_api_key="sk-bailian",
+        openai_api_key="sk-openai",
+    )
+
+    assert settings.use_openai_responses
+    assert settings.openai_configured_api_key == "sk-openai"
 
 
 def test_embedding_backend_can_enable_openai():

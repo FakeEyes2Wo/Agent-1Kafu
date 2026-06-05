@@ -44,10 +44,13 @@ class Settings(BaseSettings):
     bailian_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     openai_api_key: str = ""
     openai_base_url: str = ""
+    chat_api_backend: str = "langchain"
     chat_model: str = "qwen3.7-plus-2026-05-26"
     chat_enable_thinking: bool = False
     chat_max_tokens: int = 450
     chat_thinking_budget: int = 0
+    openai_responses_model: str = "gpt-5.5"
+    openai_responses_reasoning_effort: str = "none"
     vision_model: str = "qwen3.7-plus-2026-05-26"
     vision_model_url: str = ""
     embedding_model: str = "text-embedding-v4"
@@ -107,6 +110,19 @@ class Settings(BaseSettings):
     @property
     def has_openai_key(self) -> bool:
         return self.has_model_api_key
+
+    @property
+    def use_openai_responses(self) -> bool:
+        return self.chat_api_backend.strip().lower() in {
+            "openai_responses",
+            "responses",
+            "openai-response",
+            "openai_response",
+        }
+
+    @property
+    def openai_configured_api_key(self) -> str:
+        return _configured_api_key(self.openai_api_key)
 
     @property
     def model_api_key(self) -> str:

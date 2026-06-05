@@ -8,6 +8,7 @@ from langchain.chat_models import init_chat_model
 from langchain.messages import HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langgraph.graph import END, START, StateGraph
+from openai import OpenAI
 
 from .config import get_settings
 from .prompts import (
@@ -380,6 +381,9 @@ def response_payload(answer: str, session_id: str) -> dict:
 
 def _invoke_chat(prompt: str, error_context: str) -> str:
     settings = get_settings()
+    if getattr(settings, "use_openai_responses", False):
+        return _invoke_openai_responses(prompt, error_context, settings)
+
     try:
         model = init_chat_model(
             model=settings.chat_model,
@@ -397,6 +401,71 @@ def _invoke_chat(prompt: str, error_context: str) -> str:
         return ChatText(answer, _usage_from_message(message))
     except Exception as exc:
         raise RuntimeError(f"failed to {error_context} with chat model") from exc
+
+
+def _invoke_openai_responses(prompt: str, error_context: str, settings: Any) -> ChatText:
+    api_key = getattr(settings, "openai_configured_api_key", "")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY must be configured for OpenAI Responses API")
+
+    client_kwargs: dict[str, Any] = {
+        "api_key": api_key,
+        "timeout": settings.model_timeout_seconds,
+        "max_retries": 1,
+    }
+    base_url = str(getattr(settings, "openai_base_url", "")).strip()
+    if base_url:
+        client_kwargs["base_url"] = base_url
+
+    request: dict[str, Any] = {
+        "model": getattr(settings, "openai_responses_model", "gpt-5.5"),
+        "input": prompt,
+        "max_output_tokens": int(getattr(settings, "chat_max_tokens", CHAT_MAX_TOKENS)),
+    }
+    reasoning_effort = str(
+        getattr(settings, "openai_responses_reasoning_effort", "none")
+    ).strip().lower()
+    if reasoning_effort and reasoning_effort not in {"off", "disabled"}:
+        request["reasoning"] = {"effort": reasoning_effort}
+
+    try:
+        response = OpenAI(**client_kwargs).responses.create(**request)
+        answer = _response_output_text(response)
+        return ChatText(answer, _usage_from_response(response))
+    except Exception as exc:
+        raise RuntimeError(f"failed to {error_context} with OpenAI Responses API") from exc
+
+
+def _response_output_text(response: Any) -> str:
+    output_text = getattr(response, "output_text", None)
+    if output_text:
+        return str(output_text).strip()
+
+    texts: list[str] = []
+    for item in getattr(response, "output", []) or []:
+        content = _get_value(item, "content") or []
+        for part in content:
+            text = _get_value(part, "text")
+            if text:
+                texts.append(str(text))
+    return "".join(texts).strip()
+
+
+def _usage_from_response(response: Any) -> dict[str, int]:
+    usage = _get_value(response, "usage") or {}
+    if hasattr(usage, "model_dump"):
+        usage = usage.model_dump()
+    return {
+        str(key): int(value)
+        for key, value in dict(usage).items()
+        if isinstance(value, int | float)
+    }
+
+
+def _get_value(item: Any, key: str) -> Any:
+    if isinstance(item, dict):
+        return item.get(key)
+    return getattr(item, key, None)
 
 
 def _usage_from_message(message: Any) -> dict[str, int]:
@@ -447,7 +516,15 @@ def _merge_api_usage(api_calls: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def _require_chat_model() -> None:
-    if not get_settings().has_openai_key:
+    settings = get_settings()
+    if getattr(settings, "use_openai_responses", False):
+        if not getattr(settings, "openai_configured_api_key", ""):
+            raise RuntimeError(
+                "OPENAI_API_KEY must be configured so the OpenAI Responses API "
+                "can generate answers."
+            )
+        return
+    if not settings.has_openai_key:
         raise RuntimeError(
             "BAILIAN_API_KEY, DASHSCOPE_API_KEY, or OPENAI_API_KEY must be configured "
             "so the chat model can generate answers."

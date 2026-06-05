@@ -286,10 +286,15 @@ def _answer_cache_signature(settings) -> dict:
     )
     return {
         "version": ANSWER_CACHE_VERSION,
+        "chat_api_backend": getattr(settings, "chat_api_backend", "langchain"),
         "chat_model": getattr(settings, "chat_model", ""),
         "chat_enable_thinking": bool(getattr(settings, "chat_enable_thinking", False)),
         "chat_max_tokens": int(getattr(settings, "chat_max_tokens", CHAT_MAX_TOKENS)),
         "chat_thinking_budget": int(getattr(settings, "chat_thinking_budget", 0) or 0),
+        "openai_responses_model": getattr(settings, "openai_responses_model", ""),
+        "openai_responses_reasoning_effort": getattr(
+            settings, "openai_responses_reasoning_effort", ""
+        ),
         "vision_model": getattr(settings, "vision_model", ""),
         "prompt_hash": _stable_hash(prompt_fingerprint),
         "rag_context_format_version": RAG_CONTEXT_FORMAT_VERSION,

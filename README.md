@@ -34,10 +34,13 @@ retrieval kept in the application:
 BAILIAN_API_KEY=your-dashscope-api-key
 DASHSCOPE_API_KEY=
 BAILIAN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+CHAT_API_BACKEND=langchain
 CHAT_MODEL=qwen3.7-plus-2026-05-26
 CHAT_ENABLE_THINKING=false
 CHAT_MAX_TOKENS=450
 CHAT_THINKING_BUDGET=0
+OPENAI_RESPONSES_MODEL=gpt-5.5
+OPENAI_RESPONSES_REASONING_EFFORT=none
 VISION_MODEL=qwen3.7-plus-2026-05-26
 EMBEDDING_BACKEND=openai
 EMBEDDING_MODEL=text-embedding-v4
@@ -51,6 +54,12 @@ submission generation. Set it to `true` when you want higher-reasoning answers
 and can accept extra tokens and latency. For thinking ablations, increase
 `CHAT_MAX_TOKENS` and optionally set `CHAT_THINKING_BUDGET`; otherwise the
 thinking trace can consume the output budget and leave the final answer empty.
+
+To run OpenAI Responses API ablations instead of the default Bailian chat path,
+set `CHAT_API_BACKEND=openai_responses`, `OPENAI_API_KEY`, and
+`OPENAI_RESPONSES_MODEL=gpt-5.5`. Reasoning is off by default with
+`OPENAI_RESPONSES_REASONING_EFFORT=none`; set it to `low`, `medium`, or `high`
+only for explicit reasoning ablations.
 
 Index building always creates a local BM25/sparse index over manual chunks.
 If `BAILIAN_API_KEY` or `DASHSCOPE_API_KEY` is set, dense vectors are added
