@@ -158,6 +158,10 @@ def test_check_answer_checks_and_rewrites_once(monkeypatch):
     assert "只保留裸 `<PIC>`" in calls[-1][0]
     assert "禁止输出任何图片 ID" in calls[-1][0]
     assert "不使用 Markdown 粗体" in calls[-1][0]
+    assert "检索噪声、目录、标题和相邻无关段落不能当作回答事实" in calls[-1][0]
+    assert "来源标签、手册标题、目录、页码" in calls[-1][0]
+    assert "兼容性、保修期限" in calls[-1][0]
+    assert "步骤题通常压缩为 3-5 个关键步骤" in calls[-1][0]
 
 
 def test_check_answer_falls_back_to_draft_when_rewrite_is_empty(monkeypatch):
@@ -261,6 +265,12 @@ def test_generate_answer_prompt_has_language_rule_and_no_history(monkeypatch):
     assert "不使用 Markdown 粗体" in prompts[-1]
     assert "只有证据不足" in prompts[-1]
     assert "禁止引入无关商品手册" in prompts[-1]
+    assert "检索证据可能含有噪声、目录、标题或相邻无关段落" in prompts[-1]
+    assert "只采用与用户问题中的商品、部件、状态、动作或政策关键词直接匹配的句子" in prompts[-1]
+    assert "不要复制来源标签、手册标题、目录、页码" in prompts[-1]
+    assert "不要编造参数、时效、费用、责任、免费承诺、兼容性、保修期限" in prompts[-1]
+    assert "步骤题只保留能执行的关键步骤，通常 3-5 步" in prompts[-1]
+    assert "do not copy source headings" in prompts[-1]
     assert "只在对应步骤、部件、状态或操作旁边输出裸 `<PIC>`" in prompts[-1]
     assert "禁止输出任何图片 ID" in prompts[-1]
     assert "历史对话" not in prompts[-1]
