@@ -42,7 +42,8 @@ async def process_one(
             answer = f"[ERROR] {traceback.format_exc()}"
             file_list = []
     elapsed = time.perf_counter() - start
-    full = f'"{answer}", {json.dumps(file_list)}' if file_list else f'"{answer}"'
+    answer_json = json.dumps(answer, ensure_ascii=False)
+    full = f"{answer_json}, {json.dumps(file_list)}" if file_list else answer_json
     print(f"[{idx}/{total}] id={qid} 耗时 {elapsed:.1f}s")
     return qid, full, elapsed
 
@@ -63,11 +64,11 @@ async def main_async(workers: int) -> None:
     ]
     results = await asyncio.gather(*tasks)
 
-    with OUTPUT.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["id", "answer"])
+    with OUTPUT.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=["id", "ret"])
         writer.writeheader()
         for qid, full, _ in results:
-            writer.writerow({"id": qid, "answer": full})
+            writer.writerow({"id": qid, "ret": full})
 
     total_time = sum(r[2] for r in results)
     print(f"完成，{total} 条结果已写入 {OUTPUT}，总耗时 {total_time:.1f}s（并发）")

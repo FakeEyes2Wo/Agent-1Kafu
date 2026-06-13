@@ -50,10 +50,11 @@ def main() -> None:
     print(f"citations: {result.get('citations', [])}")
     print(f"耗时: {elapsed:.1f}s")
     print(f"\n--- 提交格式 ---")
+    answer_json = json.dumps(answer, ensure_ascii=False)
     if file_list:
-        print(f'"{answer}", {json.dumps(file_list)}')
+        print(f"{answer_json}, {json.dumps(file_list)}")
     else:
-        print(f'"{answer}"')
+        print(answer_json)
 
 
 if __name__ == "__main__":
