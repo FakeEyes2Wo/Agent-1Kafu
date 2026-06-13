@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import json
 import sys
 import time
 import traceback
@@ -41,7 +42,7 @@ async def process_one(
             answer = f"[ERROR] {traceback.format_exc()}"
             file_list = []
     elapsed = time.perf_counter() - start
-    full = f'"{answer}", {file_list}' if file_list else f'"{answer}"'
+    full = f'"{answer}", {json.dumps(file_list)}' if file_list else f'"{answer}"'
     print(f"[{idx}/{total}] id={qid} 耗时 {elapsed:.1f}s")
     return qid, full, elapsed
 

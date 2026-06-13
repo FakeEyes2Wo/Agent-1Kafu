@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import sys
 import time
 from pathlib import Path
@@ -50,7 +51,7 @@ def main() -> None:
     print(f"耗时: {elapsed:.1f}s")
     print(f"\n--- 提交格式 ---")
     if file_list:
-        print(f'"{answer}", {file_list}')
+        print(f'"{answer}", {json.dumps(file_list)}')
     else:
         print(f'"{answer}"')
 
