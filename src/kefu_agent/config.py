@@ -17,46 +17,43 @@ class Settings(BaseSettings):
     )
 
     kafu_api_token: str = "change-me"
-
     openai_api_key: str = ""
+    dashscope_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     chat_model: str = "gpt-4o-mini"
-    vision_model: str = "gpt-4o-mini"
     vision_model_url: str = ""
-    embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
-    embedding_backend: str = "sentence_transformers"
+    embedding_model: str = "text-embedding-v3"
+    embedding_backend: str = "openai"
     embedding_query_prompt_name: str = "query"
     embedding_model_dir: Path = Field(default=Path("./storage/models"))
 
     app_host: str = "0.0.0.0"
     app_port: int = 8000
-
     data_dir: Path = Field(default=Path("./data"))
     manual_dir: Path = Field(default=Path("./data/手册"))
     image_dir: Path = Field(default=Path("./data/手册/插图"))
     vectorstore_dir: Path = Field(default=Path("./storage/vectorstore"))
     llamaindex_dir: Path = Field(default=Path("./storage/llamaindex"))
+    rag_data_dir: Path = Field(default=Path("./storage/rag_check"))
 
-    chunk_size: int = 700
-    chunk_overlap: int = 120
+    chunk_size: int = 256
+    chunk_overlap: int = 26
     top_k: int = 8
     rag_backend: str = "llamaindex"
     retrieval_top_k: int = 20
     rerank_enabled: bool = False
-    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    rerank_model: str = "qwen3-rerank"
+    rerank_backend: str = "dashscope"   # "dashscope" | "local"
     rerank_top_n: int = 8
     visual_retriever: str = "lexical"
     visual_top_k: int = 8
     model_timeout_seconds: float = 60
+    token_budget: int = 1024
 
     def model_post_init(self, __context: object) -> None:
         for name in (
-            "data_dir",
-            "manual_dir",
-            "image_dir",
-            "vectorstore_dir",
-            "llamaindex_dir",
-            "embedding_model_dir",
+            "data_dir", "manual_dir", "image_dir", "vectorstore_dir",
+            "llamaindex_dir", "rag_data_dir", "embedding_model_dir",
         ):
             path = Path(getattr(self, name))
             if not path.is_absolute():
@@ -65,16 +62,11 @@ class Settings(BaseSettings):
 
     @property
     def index_path(self) -> Path:
-        return self.vectorstore_dir / "index.jsonl"
+        return self.rag_data_dir / "index" / "faiss.index"
 
     @property
     def index_meta_path(self) -> Path:
-        return self.vectorstore_dir / "index_meta.json"
-
-    @property
-    def has_openai_key(self) -> bool:
-        key = self.openai_api_key.strip()
-        return bool(key and key != "your-api-key")
+        return self.rag_data_dir / "index" / "manifest.json"
 
     @property
     def vision_base_url(self) -> str:
@@ -87,10 +79,7 @@ class Settings(BaseSettings):
     @property
     def use_sentence_transformer_embeddings(self) -> bool:
         return self.embedding_backend.strip().lower() in {
-            "sentence_transformer",
-            "sentence_transformers",
-            "huggingface",
-            "hf",
+            "sentence_transformer", "sentence_transformers", "huggingface", "hf",
         }
 
 

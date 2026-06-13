@@ -1,96 +1,29 @@
-from .core import (
-    HYBRID_SEARCH_VERSION,
-    MANUAL_LANGUAGE_FILTER_VERSION,
-    MANUAL_LANGUAGE_METADATA_KEY,
-    MANUAL_PIC_TAG_VERSION,
-    RAG_CONTEXT_FORMAT_VERSION,
-    VISUAL_RETRIEVER_VERSION,
-    Chunk,
-    _config_has_model_type,
-    _is_hf_cache_repo_dir,
-    _is_hf_model_dir,
-    _local_hf_model_path,
-    _repo_id_from_hf_cache_dir,
-    _resolve_hf_model_name,
-    _snapshot_model_path,
-    _tokens,
-    coerce_string_list,
-    cosine,
-    filter_chunks_by_manual_language as _filter_chunks_by_manual_language,
-    manual_language as _manual_language,
-    manual_language_filters as _manual_language_filters,
-    parse_json_value,
-    query_manual_language as _query_manual_language,
-    read_json_file,
-    lexical_score,
-)
-from .embeddings import (
-    HashEmbeddings,
-    SentenceTransformerEmbeddings,
-    _get_embeddings,
-    get_embeddings,
-)
-from .images import (
-    _context_image_ids,
-    _keep_first_pic_placeholders,
-    _normalize_image_id,
-    _normalize_pic_placeholders,
-    _strip_inline_pic_image_ids,
-    _strip_named_pic_tags,
-    _strip_trailing_image_list,
-    _valid_image_ids,
-    _valid_submission_image_ids,
-    format_answer_with_image_list,
-    format_contexts,
-)
-from .manuals import (
-    _apply_image_ids_to_pic_placeholders,
-    _named_pic_image_ids,
-    _sections,
-    cached_manual_chunks,
-    load_manual_chunks,
-    parse_manual,
-    split_manual,
-)
-from .retrieval import (
-    _embedding_signature,
-    _candidate_limit,
-    _get_reranker,
-    _hybrid_candidates,
-    _hybrid_chunks,
-    _index_metadata_matches,
-    _lexical_rank_chunks,
-    _lexical_retrieve,
-    _lexical_score,
-    _llama_embed_model_cached,
-    _load_index,
-    _load_llama_index,
-    _manual_chunks_to_nodes,
-    _rag_backend,
-    _rerank_nodes,
-    _write_index_metadata,
-    build_index,
-    retrieve,
-)
-from .ranking import (
-    _fine_rank_nodes,
-    _fine_score,
-    _merge_nodes,
-    _metadata_image_ids,
-    _node_identity,
-    _node_text,
-    _node_to_chunk,
-    _rank_chunks,
-    _reciprocal_rank_fusion,
-)
-from .visual import (
-    _image_context_text,
-    _strip_pic_tags,
-    _visual_chunks,
-    _visual_rank_chunks,
-    _visual_score,
-    visual_retrieve,
-)
+from ..config import get_settings
+from ..utils import get_embedding_model
+from .index import build_rag_index
+from .retrieval import ServiceConfig, Workflow
+from .schemas import HeadingPath, SearchChunk, Section
 
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+def build_index() -> int:
+    settings = get_settings()
+    embed_model = get_embedding_model(
+        settings.embedding_model,
+        api_key=settings.dashscope_api_key or None,
+        model_dir=settings.embedding_model_dir,
+        query_prompt_name=settings.embedding_query_prompt_name,
+    )
+    _, _, chunks, _ = build_rag_index(
+        settings.rag_data_dir / "cache",
+        embed_model,
+        settings.rag_data_dir / "index",
+        chunk_size=settings.chunk_size,
+        overlap_ratio=settings.chunk_overlap / settings.chunk_size,
+    )
+    return len(chunks)
+
+
+__all__ = [
+    "HeadingPath", "SearchChunk", "Section", "ServiceConfig", "Workflow",
+    "build_index", "build_rag_index",
+]

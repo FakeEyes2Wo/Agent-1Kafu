@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(python *)",
+      "Bash(.venv/Scripts/python -c \"from src.kefu_agent.rag.retrieval import ServiceConfig, Workflow; print\\('retrieval OK'\\); from src.kefu_agent.graph import answer_question; print\\('graph OK'\\)\")",
+      "mcp__web-reader__webReader",
+      "Bash(.venv/Scripts/python -c \"from src.kefu_agent.config import get_settings; s = get_settings\\(\\); print\\(f'embedding_model={s.embedding_model}'\\); print\\(f'embedding_backend={s.embedding_backend}'\\)\")",
+      "Bash(.venv/Scripts/python -c \"from src.kefu_agent.rag.retrieval import ServiceConfig, Workflow; print\\('retrieval OK'\\); from src.kefu_agent.graph import answer_question; print\\('graph OK'\\); from src.kefu_agent.rag import build_index; print\\('rag/__init__ OK'\\)\")",
+      "WebFetch(domain:help.aliyun.com)",
+      "Bash(.venv/Scripts/python -c \"from src.kefu_agent.rag.retrieval import ServiceConfig, Workflow, DashScopeReranker; print\\('retrieval OK'\\); from src.kefu_agent.graph import answer_question; print\\('graph OK'\\); from src.kefu_agent.config import get_settings; s = get_settings\\(\\); print\\(f'config OK, rerank_model={s.rerank_model}, rerank_backend={s.rerank_backend}'\\)\")",
+      "Bash(.venv/Scripts/python -c \"from langchain_community.document_compressors.dashscope_rerank import DashScopeRerank; import inspect; print\\(inspect.signature\\(DashScopeRerank.__init__\\)\\)\")",
+      "Bash(.venv/Scripts/pip list *)",
+      "Bash(uv add *)",
+      "Bash(.venv/Scripts/python -c \"from src.kefu_agent.rag.retrieval import ServiceConfig, Workflow; print\\('retrieval OK'\\); from src.kefu_agent.graph import answer_question; print\\('graph OK'\\); from src.kefu_agent.utils import get_rerank_model; print\\('utils OK'\\)\")",
+      "Bash(.venv/Scripts/python -c \"from src.kefu_agent.rag.retrieval import ServiceConfig, Workflow; print\\('retrieval OK'\\); from src.kefu_agent.graph import answer_question; print\\('graph OK'\\); from src.kefu_agent.config import get_settings; s = get_settings\\(\\); print\\(f'dashscope_api_key={s.dashscope_api_key[:10]}...' if s.dashscope_api_key else 'dashscope_api_key=\\(empty\\)'\\)\")",
+      "Bash(.venv/Scripts/python -c \"import langchain_openai; print\\(langchain_openai.__version__\\)\")",
+      "Bash(.venv/Scripts/pip show *)",
+      "Bash(C:/Users/80163/Desktop/DF/.venv/Scripts/pip show *)",
+      "Bash(.venv/Scripts/python -c \"from src.kefu_agent.rag import build_index; print\\('import OK'\\)\")",
+      "Bash(.venv/Scripts/python -c ' *)",
+      "Bash(.venv/Scripts/python -c \"from src.kefu_agent.config import get_settings; s = get_settings\\(\\); print\\(f'key={s.dashscope_api_key[:15]}...'\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import langchain; print\\('ok'\\)\")",
+      "Bash(.venv/Scripts/python.exe run_single.py 52)",
+      "Bash(.venv/Scripts/python.exe run_single.py 66)"
+    ]
+  }
+}
